@@ -5,6 +5,7 @@ import { useState, type FormEvent } from 'react';
 import { parseTaka, toTaka, type BusinessDto, type CourierDto } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { SelectField } from '@/components/SelectField';
+import { refreshData } from '@/lib/navigation';
 
 /** Blank means 0 for these defaults. */
 const poisha = (taka: string) => parseTaka(taka) ?? 0;
@@ -50,7 +51,7 @@ export function BusinessSettingsForm({ business, couriers }: { business: Busines
     }
     setError(null);
     setSaved(true);
-    router.refresh();
+    refreshData(router);
   }
 
   return (
@@ -167,7 +168,7 @@ export function CourierRow({ courier }: { courier: CourierDto }) {
   async function save(patch: Partial<CourierDto>) {
     const res = await api('PATCH', `/couriers/${courier.id}`, patch);
     setStatus(res.ok ? 'Saved' : res.error.message);
-    router.refresh();
+    refreshData(router);
   }
 
   return (

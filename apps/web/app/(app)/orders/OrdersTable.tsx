@@ -1,11 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useState } from 'react';
 import { formatTaka, ORDER_STATUS_LABELS, type OrderListItemDto, type OrderStatus } from '@ph/shared';
 import { Avatar, StatusPill } from '@/components/ui';
 import { api } from '@/lib/client-api';
+import { refreshData } from '@/lib/navigation';
 
 const BULK_TARGETS: OrderStatus[] = ['confirmed', 'shipped', 'delivered', 'cancelled'];
 
@@ -46,7 +47,7 @@ export function OrdersTable({ orders }: { orders: OrderListItemDto[] }) {
         (skipped.length ? ` Skipped ${skipped.map((s) => `#${s.orderNo}`).join(', ')}: ${skipped[0].reason}` : ''),
     });
     setSelected(new Set());
-    router.refresh();
+    refreshData(router);
   }
 
   return (

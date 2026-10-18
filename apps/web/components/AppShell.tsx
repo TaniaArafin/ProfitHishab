@@ -67,8 +67,8 @@ function initials(name: string): string {
 }
 
 export function AppShell({ businessName, userName, children }: { businessName: string; userName: string; children: ReactNode }) {
-  const pathname = usePathname();
   const router = useRouter();
+  const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
   // The clicked item lights up at once, before the next page has rendered; cleared when it arrives
@@ -97,6 +97,13 @@ export function AppShell({ businessName, userName, children }: { businessName: s
 
   return (
     <div className="min-h-screen lg:flex">
+      {/* While the next page loads (only noticeable on a slow connection). No loading.tsx skeleton on
+          purpose: swapping a skeleton for content adds React's ~300 ms reveal delay to every click. */}
+      {pending ? (
+        <div className="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-brand-soft" role="progressbar" aria-label="Loading page">
+          <div className="h-full w-2/5 animate-progress rounded-full bg-brand" />
+        </div>
+      ) : null}
       {/* Desktop sidebar */}
       <aside className="sticky top-0 hidden h-screen w-[264px] shrink-0 flex-col border-r border-schist-300 bg-sidebar-gradient text-ink lg:flex">
         <div className="flex items-center gap-3 px-6 pb-6 pt-7">

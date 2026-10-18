@@ -4,6 +4,12 @@ import type { CollectionCreateSchema } from 'typesense/lib/Typesense/Collections
 import { config } from '../../config';
 import { ProductsRepository } from './products.repository';
 
+export interface SearchPage {
+  ids: string[];
+  /** All matches, not just this page. */
+  found: number;
+}
+
 interface ProductSearchDoc {
   id: string;
   businessId: string;
@@ -12,7 +18,7 @@ interface ProductSearchDoc {
   status: string;
 }
 
-/** Search results beyond this are not useful to a person scrolling a list. */
+/** When Postgres must filter or sort the matches, it gets at most this many, best first. */
 const MAX_HITS = 1000;
 const PAGE = 250; // Typesense's per_page ceiling
 const REINDEX_BATCH = 1000;
@@ -46,32 +52,34 @@ export class ProductSearch implements OnApplicationBootstrap {
     if (this.client) this.preparing = this.prepare();
   }
 
-  /** Matching product ids for one business, best match first; null when search is unavailable. */
-  async ids(businessId: string, q: string, opts: { status?: string; limit?: number } = {}): Promise<string[] | null> {
+  /**
+   * One page of matches for one business, best first, plus how many match in total.
+   * Null when search is unavailable (callers fall back to Postgres).
+   */
+  async page(businessId: string, q: string, opts: { status?: string; page: number; perPage: number }): Promise<SearchPage | null> {
     if (!this.client) return null;
-    const limit = Math.min(opts.limit ?? MAX_HITS, MAX_HITS);
-    const filters = [`businessId:=\`${businessId}\``, ...(opts.status ? [`status:=\`${opts.status}\``] : [])];
+    try {
+      const res = await this.search(businessId, q, opts.status, opts.page, opts.perPage);
+      return { ids: (res.hits ?? []).map((h) => h.document.id), found: res.found };
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Product search unavailable; falling back to Postgres');
+      return null;
+    }
+  }
+
+  /**
+   * Up to MAX_HITS matching ids, best first, for lists that Postgres must still filter or sort
+   * (by category, missing cost, price…). Null when search is unavailable.
+   */
+  async ids(businessId: string, q: string, opts: { status?: string } = {}): Promise<string[] | null> {
+    if (!this.client) return null;
     try {
       const ids: string[] = [];
-      for (let page = 1; ids.length < limit; page++) {
-        const res = await this.client
-          .collections<ProductSearchDoc>(this.collection)
-          .documents()
-          .search({
-            q,
-            query_by: 'name,sku',
-            filter_by: filters.join(' && '),
-            prefix: true,
-            infix: 'off,always', // "0042" finds PRD-0042
-            num_typos: '2,0', // typos forgiven in names, never in SKUs
-            sort_by: '_text_match:desc,name:asc',
-            include_fields: 'id',
-            per_page: Math.min(PAGE, limit - ids.length),
-            page,
-          });
+      for (let page = 1; ids.length < MAX_HITS; page++) {
+        const res = await this.search(businessId, q, opts.status, page, PAGE);
         const hits = res.hits ?? [];
         ids.push(...hits.map((h) => h.document.id));
-        if (hits.length === 0 || ids.length >= res.found) break;
+        if (hits.length < PAGE || ids.length >= res.found) break;
       }
       return ids;
     } catch (error) {
@@ -113,6 +121,24 @@ export class ProductSearch implements OnApplicationBootstrap {
       afterId = batch[batch.length - 1].id;
     }
     return total;
+  }
+
+  private search(businessId: string, q: string, status: string | undefined, page: number, perPage: number) {
+    const filters = [`businessId:=\`${businessId}\``, ...(status ? [`status:=\`${status}\``] : [])];
+    return this.client!.collections<ProductSearchDoc>(this.collection)
+      .documents()
+      .search({
+        q,
+        query_by: 'name,sku',
+        filter_by: filters.join(' && '),
+        prefix: true,
+        infix: 'off,always', // "0042" finds PRD-0042
+        num_typos: '2,0', // typos forgiven in names, never in SKUs
+        sort_by: '_text_match:desc,name:asc',
+        include_fields: 'id',
+        page,
+        per_page: Math.min(perPage, PAGE),
+      });
   }
 
   private async prepare(): Promise<void> {

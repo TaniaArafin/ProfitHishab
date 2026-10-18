@@ -24,8 +24,12 @@ export default {
       },
       keyframes: {
         'fade-up': { from: { opacity: '0', transform: 'translateY(8px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+        progress: { from: { transform: 'translateX(-100%)' }, to: { transform: 'translateX(250%)' } },
       },
-      animation: { 'fade-up': 'fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both' },
+      animation: {
+        'fade-up': 'fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both',
+        progress: 'progress 1s ease-in-out infinite',
+      },
     },
   },
   plugins: [animate],

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ORDER_STATUS_LABELS, type OrderStatus } from '@ph/shared';
 import { api } from '@/lib/client-api';
+import { refreshData } from '@/lib/navigation';
 
 const NEEDS_CONFIRMATION: OrderStatus[] = ['cancelled', 'returned'];
 
@@ -24,7 +25,7 @@ export function StatusChanger({ orderId, status, allowed }: { orderId: string; s
       setError(res.error.message);
       return;
     }
-    router.refresh();
+    refreshData(router);
   }
 
   return (

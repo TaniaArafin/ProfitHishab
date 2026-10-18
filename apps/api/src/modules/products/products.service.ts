@@ -33,9 +33,22 @@ export class ProductsService {
     private readonly search: ProductSearch,
   ) {}
 
-  /** A search term goes to the search index; Postgres then filters, sorts and pages those matches. */
+  /**
+   * A search term goes to the search index. A plain search is paged by the index (fast at any size,
+   * true total); with a category, missing-cost filter or sort, Postgres filters and pages the best
+   * matches instead. Either way the rows themselves (prices, stock) come from Postgres.
+   */
   async list(businessId: string, filters: ProductListFilters): Promise<{ data: ProductDto[]; total: number }> {
-    const ids = filters.q ? await this.search.ids(businessId, filters.q, { status: filters.status }) : null;
+    const { q, status, page, perPage } = filters;
+    if (q && !filters.categoryId && !filters.costMissing && !filters.sort) {
+      const hits = await this.search.page(businessId, q, { status, page, perPage });
+      if (hits) {
+        if (hits.ids.length === 0) return { data: [], total: hits.found };
+        const { rows } = await this.repo.paginate(businessId, { ...filters, ids: hits.ids, page: 1, perPage: hits.ids.length });
+        return { data: rows.map(toProductDto), total: hits.found };
+      }
+    }
+    const ids = q ? await this.search.ids(businessId, q, { status }) : null;
     const { rows, total } = await this.repo.paginate(businessId, ids ? { ...filters, ids } : filters);
     return { data: rows.map(toProductDto), total };
   }

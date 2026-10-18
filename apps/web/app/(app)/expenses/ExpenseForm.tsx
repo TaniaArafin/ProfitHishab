@@ -5,6 +5,7 @@ import { useState, type FormEvent } from 'react';
 import { monthPeriod, parseTaka, type ExpenseCategoryDto } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { SelectField } from '@/components/SelectField';
+import { refreshData } from '@/lib/navigation';
 
 /** FR-EXP-03/05: quick entry with a "whole month" shortcut and the double-counting warning. */
 export function ExpenseForm({ categories, today }: { categories: ExpenseCategoryDto[]; today: string }) {
@@ -43,7 +44,7 @@ export function ExpenseForm({ categories, today }: { categories: ExpenseCategory
     setResult(warning ? { tone: 'warn', text: `Saved. ${warning}` } : { tone: 'gain', text: 'Expense saved.' });
     setAmount('');
     setNote('');
-    router.refresh();
+    refreshData(router);
   }
 
   return (
@@ -120,7 +121,7 @@ export function DeleteExpenseButton({ id }: { id: string }) {
         className="text-sm font-semibold text-loss underline"
         onClick={async () => {
           const res = await api('DELETE', `/expenses/${id}`);
-          if (res.ok) router.refresh();
+          if (res.ok) refreshData(router);
         }}
       >
         Confirm

@@ -111,7 +111,8 @@ Run: `npm test` from the root. All of it must pass before finishing a change.
 
 **Rendering (Next.js checklist)**
 - Pages are server components that fetch with `apiGet()` (cookies forwarded, 10 s timeout) and fetch independent data in parallel with `Promise.all`. Keep `'use client'` at the leaves: only the interactive part of a page is a client component.
-- Every route segment has loading UI (`app/(app)/loading.tsx`); slow sections inside a page get their own `<Suspense>` with a skeleton.
+- No route-level `loading.tsx`: pages render in tens of ms, and swapping a skeleton for content adds React's ~300 ms reveal throttle to every click. The sidebar highlights the clicked item at once and shows a top progress bar until the page arrives. Slow sections inside a page get their own `<Suspense>` with a skeleton.
+- No client router cache (`staleTimes`): every navigation renders fresh. After a write, `navigateFresh(router, href)` (just `push`) or `refreshData(router)` (just `refresh`) from `lib/navigation.ts`; never `push()` followed by `refresh()`, which can cancel the navigation.
 - Errors: `app/(app)/error.tsx` per segment, `app/global-error.tsx` for the root layout, `app/not-found.tsx` for 404s.
 - Heavy client libraries load lazily (`TrendChartLazy`).
 - Only public values may use `NEXT_PUBLIC_`; `API_URL` is server-only.

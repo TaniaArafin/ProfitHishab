@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { formatTaka, parseTaka, percent, toTaka, type CategoryDto, type ProductDto } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
-import { navigateFresh } from '@/lib/navigation';
+import { navigateFresh, refreshData } from '@/lib/navigation';
 import { SelectField } from '@/components/SelectField';
 
 type Existing = ProductDto & { pastOrderCount: number };
@@ -78,7 +78,7 @@ export function ProductForm({ product, categories }: { product?: Existing; categ
     const res = await api('PATCH', `/products/${product.id}`, { status: 'active' });
     if (res.ok) {
       setNotice('Product restored. It can be added to orders again.');
-      router.refresh();
+      refreshData(router);
     } else {
       setError(res.error);
     }

@@ -24,11 +24,6 @@ const nextConfig = {
     ? { output: 'standalone', outputFileTracingRoot: path.join(import.meta.dirname, '../..') }
     : {}),
   poweredByHeader: false,
-  experimental: {
-    // Going back to a page seen in the last 30 s is instant (served from the client router cache).
-    // Every mutation calls router.refresh(), which clears it, so a seller never sees their own stale data.
-    staleTimes: { dynamic: 30 },
-  },
   devIndicators: { position: 'bottom-right' },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];

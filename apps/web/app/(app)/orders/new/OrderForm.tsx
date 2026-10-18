@@ -18,7 +18,7 @@ import {
   type ProductPriceOnDto,
 } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
-import { navigateFresh } from '@/lib/navigation';
+import { navigateFresh, refreshData } from '@/lib/navigation';
 import { SelectField } from '@/components/SelectField';
 import { useCustomerLookup } from '@/lib/hooks';
 import { CustomerFields } from './CustomerFields';
@@ -180,7 +180,7 @@ export function OrderForm({
     if (addAnother) {
       setSaved(`Order #${res.data.orderNo} saved.`);
       resetForNextOrder();
-      router.refresh();
+      refreshData(router);
     } else {
       navigateFresh(router, `/orders/${res.data.id}`);
     }
