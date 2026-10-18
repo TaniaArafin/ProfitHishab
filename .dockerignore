@@ -1,0 +1,15 @@
+# Keep secrets and local build output out of the image context (nodebestpractices 8.4).
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+!**/.env.example
+**/*.tsbuildinfo
+.git
+.github
+docker
+*.md

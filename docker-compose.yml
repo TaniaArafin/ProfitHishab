@@ -1,0 +1,34 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: profithishab
+      POSTGRES_PASSWORD: profithishab
+      POSTGRES_DB: profithishab
+    ports:
+      - '5434:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U profithishab']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  search:
+    image: typesense/typesense:29.0
+    command: ['--data-dir', '/data', '--api-key', 'profithishab-dev-key', '--api-port', '8109', '--enable-cors']
+    ports:
+      - '8109:8109'
+    volumes:
+      - searchdata:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'bash -c "exec 3<>/dev/tcp/localhost/8109" || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  searchdata:

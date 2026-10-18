@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-paper text-ink antialiased;
+    font-size: 15px;
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.015em;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand/60 ring-offset-2 ring-offset-paper;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  .input {
+    @apply block w-full rounded-xl border border-line bg-card px-3.5 py-2.5 text-[15px] text-ink shadow-[0_1px_2px_rgba(24,31,20,0.04)] transition placeholder:text-ink-faint hover:border-ink/20 focus:border-brand focus:outline-none focus:ring-4 focus:ring-brand/10 disabled:bg-paper;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-ink;
+  }
+  .card {
+    @apply rounded-2xl border border-line bg-card shadow-soft transition-[box-shadow,transform,border-color,background-color] duration-300 ease-out;
+  }
+  /* Stat tiles: lift slightly on hover. */
+  .card-hover {
+    @apply hover:-translate-y-0.5 hover:border-schist-300 hover:shadow-lift;
+  }
+  /* Page enter (app/(app)/template.tsx): each top-level section of the page fades up in turn. */
+  .page-enter > * > * {
+    @apply animate-fade-up;
+  }
+  .page-enter > * > :nth-child(2) {
+    animation-delay: 60ms;
+  }
+  .page-enter > * > :nth-child(3) {
+    animation-delay: 120ms;
+  }
+  .page-enter > * > :nth-child(4) {
+    animation-delay: 180ms;
+  }
+  .page-enter > * > :nth-child(n + 5) {
+    animation-delay: 240ms;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-primary {
+    @apply btn bg-brand-gradient text-schist-100 shadow-glow hover:brightness-110;
+  }
+  .btn-secondary {
+    @apply btn border border-line bg-card text-ink shadow-[0_1px_2px_rgba(24,31,20,0.05)] hover:border-ink/20 hover:bg-paper;
+  }
+  .btn-danger {
+    @apply btn bg-loss text-white shadow-[0_8px_20px_-8px_rgba(194,54,43,0.6)] hover:brightness-110;
+  }
+  .th {
+    @apply whitespace-nowrap px-5 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-faint;
+  }
+  .td {
+    @apply px-5 py-4 align-middle;
+  }
+  .section-title {
+    @apply text-[13px] font-semibold uppercase tracking-[0.08em] text-ink-faint;
+  }
+}

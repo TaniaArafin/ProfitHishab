@@ -1,0 +1,330 @@
+// ProfitHishab V1 data model — see SRS.md section 7.
+// Money columns are integer poisha. Profit is never stored; it is derived from orders and expenses.
+// Status-like columns are plain text validated by the shared Zod enums, and backed by CHECK
+// constraints in the migrations (Prisma cannot express those in this file).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String           @id @default(uuid(7)) @db.Uuid
+  name         String
+  email        String?          @unique
+  phone        String?          @unique
+  passwordHash String
+  locale       String           @default("bn")
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  sessions     Session[]
+  memberships  BusinessMember[]
+
+  @@map("users")
+}
+
+model Session {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @db.Uuid
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  ip         String?
+  userAgent  String?
+  lastUsedAt DateTime  @default(now())
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model Business {
+  id                   String            @id @default(uuid(7)) @db.Uuid
+  ownerId              String            @db.Uuid
+  name                 String
+  logoUrl              String?
+  phone                String?
+  address              String?
+  city                 String?
+  businessType         String?
+  facebookPageUrl      String?
+  currency             String            @default("BDT")
+  timezone             String            @default("Asia/Dhaka")
+  defaultCourierId     String?           @db.Uuid
+  defaultCourierCost   Int               @default(0)
+  defaultReturnCost    Int               @default(0)
+  defaultPackagingCost Int               @default(0)
+  nextOrderNo          Int               @default(1001)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  members              BusinessMember[]
+  categories           Category[]
+  products             Product[]
+  customers            Customer[]
+  couriers             Courier[]
+  orders               Order[]
+  expenseCategories    ExpenseCategory[]
+  expenses             Expense[]
+  imports              Import[]
+
+  @@map("businesses")
+}
+
+model BusinessMember {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @db.Uuid
+  userId     String   @db.Uuid
+  role       String   @default("owner")
+  createdAt  DateTime @default(now())
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@map("business_members")
+}
+
+model Category {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @db.Uuid
+  name       String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  products   Product[]
+
+  @@unique([businessId, name])
+  @@map("categories")
+}
+
+model Product {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  businessId   String      @db.Uuid
+  categoryId   String?     @db.Uuid
+  name         String
+  sku          String
+  sellingPrice Int
+  costPrice    Int
+  stock        Int         @default(0)
+  status       String      @default("active")
+  importId     String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  business     Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category     Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  orderItems   OrderItem[]
+  prices       ProductPrice[]
+
+  @@unique([businessId, sku])
+  @@map("products")
+}
+
+/// Price history: one row per day the selling price or cost changed. An order takes
+/// the row in effect on its orderDate, so later changes never rewrite past profit.
+model ProductPrice {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  businessId    String   @db.Uuid
+  productId     String   @db.Uuid
+  sellingPrice  Int
+  costPrice     Int
+  /// First day (business timezone) this price applies; it lasts until the next row.
+  effectiveFrom DateTime @db.Date
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, effectiveFrom])
+  @@map("product_prices")
+}
+
+model Customer {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @db.Uuid
+  name       String
+  phone      String
+  address    String?
+  city       String?
+  note       String?
+  importId   String?  @db.Uuid
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@unique([businessId, phone])
+  @@map("customers")
+}
+
+model Courier {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  businessId        String   @db.Uuid
+  name              String
+  defaultCost       Int      @default(0)
+  defaultReturnCost Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  orders            Order[]
+
+  @@map("couriers")
+}
+
+model Order {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  businessId      String               @db.Uuid
+  orderNo         Int
+  customerId      String               @db.Uuid
+  courierId       String?              @db.Uuid
+  status          String               @default("new")
+  paymentMethod   String               @default("cod")
+  orderDate       DateTime             @db.Date
+  deliveryAddress String?
+  subtotal        Int
+  discount        Int                  @default(0)
+  deliveryCharge  Int                  @default(0)
+  total           Int
+  /// Cache of Σ quantity × unitCost over items; kept in sync in the same transaction.
+  productCost     Int                  @default(0)
+  courierCost     Int                  @default(0)
+  packagingCost   Int                  @default(0)
+  returnCost      Int                  @default(0)
+  note            String?
+  source          String               @default("manual")
+  importId        String?              @db.Uuid
+  externalRef     String?
+  dedupeHash      String?
+  /// Client-supplied Idempotency-Key for POST /orders; a retry with the same key returns this order.
+  idempotencyKey  String?
+  /// sha256 of the request body that created the order, to refuse a key reused with a different body.
+  idempotencyHash String?
+  deliveredAt     DateTime?
+  returnedAt      DateTime?
+  createdById     String?              @db.Uuid
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  business        Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customer        Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  courier         Courier?             @relation(fields: [courierId], references: [id], onDelete: SetNull)
+  import          Import?              @relation(fields: [importId], references: [id], onDelete: SetNull)
+  items           OrderItem[]
+  history         OrderStatusHistory[]
+
+  @@unique([businessId, orderNo])
+  @@unique([businessId, externalRef])
+  @@unique([businessId, idempotencyKey])
+  @@index([businessId, orderDate, status])
+  @@index([businessId, customerId])
+  @@index([businessId, dedupeHash])
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  orderId     String  @db.Uuid
+  businessId  String  @db.Uuid
+  productId   String  @db.Uuid
+  productName String
+  sku         String
+  quantity    Int
+  unitPrice   Int
+  unitCost    Int
+  lineTotal   Int
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([businessId, productId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  orderId     String   @db.Uuid
+  businessId  String   @db.Uuid
+  fromStatus  String?
+  toStatus    String
+  changedById String?  @db.Uuid
+  changedAt   DateTime @default(now())
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model ExpenseCategory {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  businessId String    @db.Uuid
+  name       String
+  kind       String    @default("other")
+  isSystem   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  business   Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  expenses   Expense[]
+
+  @@unique([businessId, name])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  businessId  String          @db.Uuid
+  categoryId  String          @db.Uuid
+  amount      Int
+  expenseDate DateTime        @db.Date
+  note        String?
+  createdById String?         @db.Uuid
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category    ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, expenseDate])
+  @@map("expenses")
+}
+
+model Import {
+  id            String      @id @default(uuid(7)) @db.Uuid
+  businessId    String      @db.Uuid
+  type          String      @default("orders")
+  fileName      String
+  status        String      @default("uploaded")
+  mapping       Json?
+  statusMapping Json?
+  totalRows     Int         @default(0)
+  validRows     Int         @default(0)
+  duplicateRows Int         @default(0)
+  invalidRows   Int         @default(0)
+  importedRows  Int         @default(0)
+  createdById   String?     @db.Uuid
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  business      Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  rows          ImportRow[]
+  orders        Order[]
+
+  @@index([businessId, createdAt])
+  @@map("imports")
+}
+
+model ImportRow {
+  id         String  @id @default(uuid(7)) @db.Uuid
+  importId   String  @db.Uuid
+  businessId String  @db.Uuid
+  rowNumber  Int
+  raw        Json
+  normalized Json?
+  status     String
+  errors     Json?
+  orderId    String? @db.Uuid
+  import     Import  @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId, status])
+  @@map("import_rows")
+}

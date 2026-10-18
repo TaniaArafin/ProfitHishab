@@ -1,0 +1,100 @@
+# Every push and pull request runs the full check (nodebestpractices 3.1, 4.1, 5.13, 5.19).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: profithishab
+          POSTGRES_PASSWORD: profithishab
+          POSTGRES_DB: profithishab_test
+        ports: ['5434:5432']
+        options: >-
+          --health-cmd "pg_isready -U profithishab"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      search:
+        image: typesense/typesense:29.0
+        env:
+          TYPESENSE_API_KEY: ci-search-key
+          TYPESENSE_DATA_DIR: /tmp
+        ports: ['8109:8108']
+
+    env:
+      DATABASE_URL: postgresql://profithishab:profithishab@localhost:5434/profithishab_test?schema=public
+      TEST_DATABASE_URL: postgresql://profithishab:profithishab@localhost:5434/profithishab_test?schema=public
+      # API tests run the search suite against Typesense; the e2e run's API server uses it too.
+      TEST_TYPESENSE_URL: http://127.0.0.1:8109
+      TEST_TYPESENSE_API_KEY: ci-search-key
+      TYPESENSE_URL: http://127.0.0.1:8109
+      TYPESENSE_API_KEY: ci-search-key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install (exact lockfile)
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build shared package and Prisma client
+        run: |
+          npm run build:shared
+          npm run prisma:generate -w @ph/api
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Migrate test database
+        run: npm run prisma:deploy -w @ph/api
+
+      - name: Unit, component and API tests
+        run: npm test
+
+      - name: Build
+        run: |
+          npm run build -w @ph/api
+          npm run build -w @ph/web
+
+      - name: Install Playwright browser
+        run: npx -w @ph/web playwright install --with-deps chromium
+
+      - name: End-to-end test
+        env:
+          NODE_ENV: production
+          COOKIE_SECURE: 'false'
+          LOG_LEVEL: warn
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7

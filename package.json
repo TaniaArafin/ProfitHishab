@@ -1,0 +1,35 @@
+{
+  "name": "profithishab",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d db search",
+    "db:down": "docker compose down",
+    "build:shared": "npm run build -w @ph/shared",
+    "dev:api": "npm run dev -w @ph/api",
+    "dev:web": "npm run dev -w @ph/web",
+    "migrate": "npm run prisma:migrate -w @ph/api",
+    "test": "npm test -w @ph/shared && npm test -w @ph/api && npm test -w @ph/web",
+    "typecheck": "npm run typecheck -w @ph/shared && npm run typecheck -w @ph/api && npm run typecheck -w @ph/web",
+    "lint": "npm run lint -ws",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:e2e": "npm run test:e2e -w @ph/web",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript-eslint": "^8.71.2"
+  },
+  "engines": {
+    "node": ">=22 <23",
+    "npm": ">=10"
+  }
+}
