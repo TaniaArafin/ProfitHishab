@@ -1,7 +1,3 @@
-// ProfitHishab V1 data model — see SRS.md section 7.
-// Money columns are integer poisha. Profit is never stored; it is derived from orders and expenses.
-// Status-like columns are plain text validated by the shared Zod enums, and backed by CHECK
-// constraints in the migrations (Prisma cannot express those in this file).
 
 generator client {
   provider = "prisma-client-js"
