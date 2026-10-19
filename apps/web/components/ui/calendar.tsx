@@ -1,6 +1,5 @@
 'use client';
 
-// shadcn/ui Calendar over react-day-picker v9, themed with the schist tokens.
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import { DayPicker } from 'react-day-picker';
