@@ -3,6 +3,18 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ORDER_STATUS_LABELS, type OrderStatus } from '@ph/shared';
+import { Alert } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/client-api';
 import { refreshData } from '@/lib/navigation';
 
@@ -29,41 +41,52 @@ export function StatusChanger({ orderId, status, allowed }: { orderId: string; s
   }
 
   return (
-    <section className="card flex flex-col gap-3 p-5">
-      <h2 className="font-semibold">Change status</h2>
-      {error ? <p className="rounded-md bg-loss-soft px-3 py-2 text-sm text-loss">{error}</p> : null}
-      {confirming ? (
-        <div className="flex flex-col gap-3 rounded-md bg-paper p-3 text-sm">
-          <p>
-            Mark this order <strong>{ORDER_STATUS_LABELS[confirming].toLowerCase()}</strong>?{' '}
-            {confirming === 'returned'
-              ? 'Its sale leaves your revenue and the courier and return charges count as a loss. Stock goes back on the shelf.'
-              : 'It will no longer count in any figure. Stock goes back on the shelf.'}
-          </p>
-          <div className="flex gap-2">
-            <button type="button" className="btn-danger" disabled={pending} onClick={() => change(confirming)}>
-              {pending ? 'Saving…' : `Mark ${ORDER_STATUS_LABELS[confirming].toLowerCase()}`}
-            </button>
-            <button type="button" className="btn-secondary" onClick={() => setConfirming(null)}>
-              Keep {ORDER_STATUS_LABELS[status].toLowerCase()}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
+    <Card>
+      <CardHeader>
+        <CardTitle>Change status</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {error ? <Alert variant="destructive">{error}</Alert> : null}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {allowed.map((to) => (
-            <button
+            <Button
               key={to}
               type="button"
               disabled={pending}
-              className={NEEDS_CONFIRMATION.includes(to) ? 'btn-secondary text-loss' : 'btn-secondary'}
+              variant={NEEDS_CONFIRMATION.includes(to) ? 'destructive-outline' : 'secondary'}
               onClick={() => (NEEDS_CONFIRMATION.includes(to) ? setConfirming(to) : change(to))}
             >
               {ORDER_STATUS_LABELS[to]}
-            </button>
+            </Button>
           ))}
         </div>
-      )}
-    </section>
+      </CardContent>
+
+      <AlertDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open && !pending) setConfirming(null);
+        }}
+      >
+        {confirming ? (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Mark this order {ORDER_STATUS_LABELS[confirming].toLowerCase()}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {confirming === 'returned'
+                  ? 'Its sale leaves your revenue and the courier and return charges count as a loss. Stock goes back on the shelf.'
+                  : 'It will no longer count in any figure. Stock goes back on the shelf.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={pending}>Keep {ORDER_STATUS_LABELS[status].toLowerCase()}</AlertDialogCancel>
+              <Button type="button" variant="destructive" disabled={pending} onClick={() => change(confirming)}>
+                {pending ? 'Saving…' : `Mark ${ORDER_STATUS_LABELS[confirming].toLowerCase()}`}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        ) : null}
+      </AlertDialog>
+    </Card>
   );
 }

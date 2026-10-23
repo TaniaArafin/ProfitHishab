@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { CheckCircle2, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { EmptyState, PageHeader } from '@/components/ui';
+import { Button } from '@/components/ui/button';
 import { apiGet } from '@/lib/server-api';
 import { MissingCostForm, type MissingCostRow } from './MissingCostForm';
 
@@ -22,9 +23,9 @@ export default async function MissingCostPage() {
           title="Every product has a cost"
           body="Your profit figures use real product costs."
           actions={
-            <Link href="/dashboard" className="btn-primary">
-              Back to dashboard
-            </Link>
+            <Button asChild>
+              <Link href="/dashboard">Back to dashboard</Link>
+            </Button>
           }
         />
       ) : (

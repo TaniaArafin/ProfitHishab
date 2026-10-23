@@ -4,7 +4,24 @@ import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { monthPeriod, parseTaka, type ExpenseCategoryDto } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
+import { Trash2 } from 'lucide-react';
 import { SelectField } from '@/components/SelectField';
+import { Alert } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { refreshData } from '@/lib/navigation';
 
 /** FR-EXP-03/05: quick entry with a "whole month" shortcut and the double-counting warning. */
@@ -48,87 +65,115 @@ export function ExpenseForm({ categories, today }: { categories: ExpenseCategory
   }
 
   return (
-    <form onSubmit={submit} className="card flex flex-col gap-4 p-5 lg:sticky lg:top-6 lg:self-start" noValidate>
-      <h2 className="font-semibold">Add expense</h2>
-      {result ? (
-        <p className={`rounded-md px-3 py-2 text-sm ${result.tone === 'gain' ? 'bg-gain-soft text-gain' : 'bg-warn-soft text-warn'}`}>
-          {result.text}
-        </p>
-      ) : null}
-      {error && !error.fields ? <p className="rounded-md bg-loss-soft px-3 py-2 text-sm text-loss">{error.message}</p> : null}
-      <div>
-        <label className="label" htmlFor="expense-category">
-          Category
-        </label>
-        <SelectField
-          id="expense-category"
-          value={categoryId}
-          onValueChange={setCategoryId}
-          options={categories.map((c) => ({ value: c.id, label: c.name }))}
-        />
-      </div>
-      <div>
-        <label className="label" htmlFor="expense-amount">
-          Amount (৳)
-        </label>
-        <input
-          id="expense-amount"
-          inputMode="decimal"
-          className="input tabular"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="25000"
-        />
-        {fieldError(error, 'amount') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'amount')}</p> : null}
-      </div>
-      <div>
-        <label className="label" htmlFor="expense-date">
-          {wholeMonth ? 'Month' : 'Date'}
-        </label>
-        <input id="expense-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
-        <label className="mt-2 flex items-center gap-2 text-sm text-ink-muted">
-          <input type="checkbox" checked={wholeMonth} onChange={(e) => setWholeMonth(e.target.checked)} />
-          For the whole month (saved on the 1st)
-        </label>
-      </div>
-      <div>
-        <label className="label" htmlFor="expense-note">
-          Note
-        </label>
-        <input id="expense-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
-      </div>
-      <button type="submit" className="btn-primary" disabled={pending || !categoryId}>
-        {pending ? 'Saving…' : 'Save expense'}
-      </button>
-    </form>
+    <Card className="order-first lg:sticky lg:top-6 lg:order-none lg:self-start">
+      <form onSubmit={submit} className="flex flex-col gap-4 p-4 sm:p-5" noValidate>
+        <h2 className="font-semibold">Add expense</h2>
+        {result ? (
+          <Alert variant={result.tone === 'gain' ? 'success' : 'warning'} role="status">
+            {result.text}
+          </Alert>
+        ) : null}
+        {error && !error.fields ? <Alert variant="destructive">{error.message}</Alert> : null}
+        <div>
+          <Label htmlFor="expense-category">Category</Label>
+          <SelectField
+            id="expense-category"
+            value={categoryId}
+            onValueChange={setCategoryId}
+            options={categories.map((c) => ({ value: c.id, label: c.name }))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="expense-amount">Amount (৳)</Label>
+          <Input
+            id="expense-amount"
+            inputMode="decimal"
+            className="tabular"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="25000"
+            aria-invalid={fieldError(error, 'amount') ? true : undefined}
+            aria-describedby={fieldError(error, 'amount') ? 'expense-amount-error' : undefined}
+          />
+          {fieldError(error, 'amount') ? (
+            <p id="expense-amount-error" className="mt-1 text-sm text-loss">
+              {fieldError(error, 'amount')}
+            </p>
+          ) : null}
+        </div>
+        <div>
+          <Label htmlFor="expense-date">{wholeMonth ? 'Month' : 'Date'}</Label>
+          <Input id="expense-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <div className="mt-2 flex min-h-10 items-center gap-2.5">
+            <Checkbox id="expense-whole-month" checked={wholeMonth} onCheckedChange={(v) => setWholeMonth(v === true)} />
+            <Label htmlFor="expense-whole-month" className="mb-0 font-normal text-ink-muted">
+              For the whole month (saved on the 1st)
+            </Label>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="expense-note">Note</Label>
+          <Input id="expense-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional" />
+        </div>
+        <Button type="submit" disabled={pending || !categoryId}>
+          {pending ? 'Saving…' : 'Save expense'}
+        </Button>
+      </form>
+    </Card>
   );
 }
 
 export function DeleteExpenseButton({ id }: { id: string }) {
   const router = useRouter();
-  const [confirming, setConfirming] = useState(false);
-  if (!confirming) {
-    return (
-      <button type="button" className="text-sm text-ink-muted underline hover:text-loss" onClick={() => setConfirming(true)}>
-        Delete
-      </button>
-    );
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setPending(true);
+    setError(null);
+    const res = await api('DELETE', `/expenses/${id}`);
+    setPending(false);
+    if (!res.ok) {
+      setError(res.error.message);
+      return;
+    }
+    setOpen(false);
+    refreshData(router);
   }
+
   return (
-    <span className="inline-flex gap-2">
-      <button
-        type="button"
-        className="text-sm font-semibold text-loss underline"
-        onClick={async () => {
-          const res = await api('DELETE', `/expenses/${id}`);
-          if (res.ok) refreshData(router);
-        }}
-      >
-        Confirm
-      </button>
-      <button type="button" className="text-sm text-ink-muted underline" onClick={() => setConfirming(false)}>
-        Keep
-      </button>
-    </span>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setError(null);
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="h-10 w-10 text-ink-muted hover:bg-loss-soft hover:text-loss"
+          aria-label="Delete expense"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this expense?</AlertDialogTitle>
+          <AlertDialogDescription>It is removed from your expenses and your profit figures update.</AlertDialogDescription>
+        </AlertDialogHeader>
+        {error ? <Alert variant="destructive">{error}</Alert> : null}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Keep</AlertDialogCancel>
+          {/* A plain Button, not AlertDialogAction: the dialog stays open until the delete finishes. */}
+          <Button variant="destructive" disabled={pending} onClick={remove}>
+            {pending ? 'Deleting…' : 'Delete'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

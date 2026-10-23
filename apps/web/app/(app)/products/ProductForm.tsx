@@ -6,6 +6,22 @@ import { formatTaka, parseTaka, percent, toTaka, type CategoryDto, type ProductD
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { navigateFresh, refreshData } from '@/lib/navigation';
 import { SelectField } from '@/components/SelectField';
+import { Alert } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 type Existing = ProductDto & { pastOrderCount: number };
 
@@ -70,6 +86,8 @@ export function ProductForm({ product, categories }: { product?: Existing; categ
     const res = await api('POST', `/products/${product.id}/archive`);
     if (res.ok) {
       navigateFresh(router, '/products');
+    } else {
+      setError(res.error);
     }
   }
 
@@ -87,113 +105,124 @@ export function ProductForm({ product, categories }: { product?: Existing; categ
   const err = (field: string) => (fieldError(error, field) ? <p className="mt-1 text-sm text-loss">{fieldError(error, field)}</p> : null);
 
   return (
-    <form onSubmit={submit} className="card flex max-w-xl flex-col gap-4 p-5" noValidate>
-      {notice ? <p className="rounded-md bg-gain-soft px-3 py-2 text-sm text-gain">{notice}</p> : null}
-      {error && !error.fields ? <p className="rounded-md bg-loss-soft px-3 py-2 text-sm text-loss">{error.message}</p> : null}
-      <div>
-        <label className="label" htmlFor="name">
-          Product name
-        </label>
-        <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
-        {err('name')}
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
+    <Card className="max-w-xl">
+      <form onSubmit={submit} className="flex flex-col gap-4 p-4 sm:p-5" noValidate>
+        {notice ? (
+          <Alert variant="success" role="status">
+            {notice}
+          </Alert>
+        ) : null}
+        {error && !error.fields ? <Alert variant="destructive">{error.message}</Alert> : null}
         <div>
-          <label className="label" htmlFor="sku">
-            SKU
-          </label>
-          <input id="sku" className="input uppercase" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Auto: PRD-0001" />
-          {err('sku')}
+          <Label htmlFor="name">Product name</Label>
+          <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required aria-invalid={!!fieldError(error, 'name')} />
+          {err('name')}
         </div>
-        <div>
-          <label className="label" htmlFor="category">
-            Category
-          </label>
-          <SelectField
-            id="category"
-            value={categoryId}
-            onValueChange={setCategoryId}
-            options={[
-              { value: '', label: 'No category' },
-              ...categories.map((c) => ({ value: c.id, label: c.name })),
-              { value: '__new', label: '+ New category…' },
-            ]}
-          />
-          {categoryId === '__new' ? (
-            <input
-              className="input mt-2"
-              aria-label="New category name"
-              placeholder="Category name"
-              value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value)}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="sku">SKU</Label>
+            <Input id="sku" className="uppercase" value={sku} onChange={(e) => setSku(e.target.value)} placeholder="Auto: PRD-0001" />
+            {err('sku')}
+          </div>
+          <div>
+            <Label htmlFor="category">Category</Label>
+            <SelectField
+              id="category"
+              value={categoryId}
+              onValueChange={setCategoryId}
+              options={[
+                { value: '', label: 'No category' },
+                ...categories.map((c) => ({ value: c.id, label: c.name })),
+                { value: '__new', label: '+ New category…' },
+              ]}
             />
+            {categoryId === '__new' ? (
+              <Input
+                className="mt-2"
+                aria-label="New category name"
+                placeholder="Category name"
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value)}
+              />
+            ) : null}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <div>
+            <Label htmlFor="price">Selling price (৳)</Label>
+            <Input id="price" inputMode="decimal" className="tabular" value={price} onChange={(e) => setPrice(e.target.value)} required />
+            {err('sellingPrice')}
+          </div>
+          <div>
+            <Label htmlFor="cost">Product cost (৳)</Label>
+            <Input id="cost" inputMode="decimal" className="tabular" value={cost} onChange={(e) => setCost(e.target.value)} required />
+            {err('costPrice')}
+          </div>
+          <div className="col-span-2 sm:col-span-1">
+            <Label htmlFor="stock">Stock</Label>
+            <Input
+              id="stock"
+              type="number"
+              inputMode="numeric"
+              className="tabular"
+              value={stock}
+              onChange={(e) => setStock(e.target.value)}
+            />
+          </div>
+        </div>
+        {product && ((priceP !== null && priceP !== product.sellingPrice) || (costP !== null && costP !== product.costPrice)) ? (
+          <p className="text-sm text-ink-muted">
+            The new price applies to orders from today. Earlier orders keep {formatTaka(product.sellingPrice)} and their profit doesn&apos;t
+            change.
+          </p>
+        ) : null}
+        <div className="rounded-md bg-paper px-4 py-3 text-sm" aria-live="polite">
+          {preview ? (
+            <span>
+              Gross profit <strong className={preview.gross >= 0 ? 'text-gain' : 'text-loss'}>{formatTaka(preview.gross)}</strong> per unit
+              · margin <strong>{preview.margin}%</strong>
+              {costP === 0 ? <span className="ml-1 text-warn">· a cost of 0 overstates profit</span> : null}
+            </span>
+          ) : (
+            <span className="text-ink-muted">Enter price and cost to see the profit per unit.</span>
+          )}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <Button type="submit" disabled={pending}>
+            {pending ? 'Saving…' : product ? 'Save changes' : 'Add product'}
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => router.back()}>
+            Cancel
+          </Button>
+          {product && product.status === 'active' ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" variant="link" className="self-center text-loss hover:text-loss sm:ml-auto">
+                  Archive product
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Archive {product.name}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    It leaves your product list and can&apos;t be added to new orders. Past orders and their profit stay as they are. You
+                    can restore it later.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep product</AlertDialogCancel>
+                  <AlertDialogAction onClick={archive}>Archive product</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
+          {product && product.status === 'archived' ? (
+            <Button type="button" variant="link" className="self-center text-ink sm:ml-auto" onClick={restore}>
+              Restore product
+            </Button>
           ) : null}
         </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div>
-          <label className="label" htmlFor="price">
-            Selling price (৳)
-          </label>
-          <input
-            id="price"
-            inputMode="decimal"
-            className="input tabular"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            required
-          />
-          {err('sellingPrice')}
-        </div>
-        <div>
-          <label className="label" htmlFor="cost">
-            Product cost (৳)
-          </label>
-          <input id="cost" inputMode="decimal" className="input tabular" value={cost} onChange={(e) => setCost(e.target.value)} required />
-          {err('costPrice')}
-        </div>
-        <div>
-          <label className="label" htmlFor="stock">
-            Stock
-          </label>
-          <input id="stock" type="number" className="input tabular" value={stock} onChange={(e) => setStock(e.target.value)} />
-        </div>
-      </div>
-      {product && ((priceP !== null && priceP !== product.sellingPrice) || (costP !== null && costP !== product.costPrice)) ? (
-        <p className="text-sm text-ink-muted">
-          The new price applies to orders from today. Earlier orders keep {formatTaka(product.sellingPrice)} and their profit doesn&apos;t
-          change.
-        </p>
-      ) : null}
-      <div className="rounded-md bg-paper px-4 py-3 text-sm" aria-live="polite">
-        {preview ? (
-          <span>
-            Gross profit <strong className={preview.gross >= 0 ? 'text-gain' : 'text-loss'}>{formatTaka(preview.gross)}</strong> per unit ·
-            margin <strong>{preview.margin}%</strong>
-            {costP === 0 ? <span className="ml-1 text-warn">· a cost of 0 overstates profit</span> : null}
-          </span>
-        ) : (
-          <span className="text-ink-muted">Enter price and cost to see the profit per unit.</span>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? 'Saving…' : product ? 'Save changes' : 'Add product'}
-        </button>
-        <button type="button" className="btn-secondary" onClick={() => router.back()}>
-          Cancel
-        </button>
-        {product && product.status === 'active' ? (
-          <button type="button" className="ml-auto text-sm font-medium text-loss underline" onClick={archive}>
-            Archive product
-          </button>
-        ) : null}
-        {product && product.status === 'archived' ? (
-          <button type="button" className="ml-auto text-sm font-medium text-ink underline" onClick={restore}>
-            Restore product
-          </button>
-        ) : null}
-      </div>
-    </form>
+      </form>
+    </Card>
   );
 }

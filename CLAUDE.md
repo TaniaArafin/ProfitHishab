@@ -134,7 +134,8 @@ Run: `npm test` from the root. All of it must pass before finishing a change.
 
 **Styling and data**
 - Colours come only from `lib/theme-colors.ts` (Tailwind and charts both import it). No hex values in components.
-- UI primitives come from shadcn/ui (`components/ui/*`, config in `components.json`, Tailwind v3 so CLI `shadcn@2.3.0`), themed with the schist tokens. Dropdowns use `SelectField`, never a native `<select>`.
+- UI primitives come from shadcn/ui (`components/ui/*`, config in `components.json`, Tailwind v3 so CLI `shadcn@2.3.0`), themed with the schist tokens. Dropdowns use `SelectField`, never a native `<select>`. Buttons, inputs, labels, checkboxes, cards, tables, alerts and confirm dialogs (`AlertDialog`) also come from `components/ui/*`; no hand-made CSS component classes in `globals.css`.
+- Every page works from 360 px phones to 1920 px+ desktops: lists are a `Table` from `md` and stacked cards below; grids on phone use `grid-cols-[minmax(0,1fr)]` (or `min-w-0`) so charts and long text cannot widen the page.
 - Money is typed in taka and parsed with `parseTaka` from `@ph/shared`.
 - Create requests a phone might retry send an `Idempotency-Key`, generated once per form and renewed after success.
 

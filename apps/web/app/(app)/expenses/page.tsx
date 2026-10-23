@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Wallet } from 'lucide-react';
 import { formatTaka, todayIn, type ExpenseCategoryDto, type ExpenseListDto } from '@ph/shared';
 import { Banner, PageHeader } from '@/components/ui';
+import { Card } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { periodFromParams, periodLabel } from '@/lib/period';
 import { apiGet } from '@/lib/server-api';
@@ -31,58 +33,85 @@ export default async function ExpensesPage({ searchParams }: Props) {
 
       {list.warning ? <Banner tone="warn">{list.warning}</Banner> : null}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="flex min-w-0 flex-col gap-5">
           {list.totals.length > 0 ? (
             <section className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-label="Totals by category">
               {list.totals.map((t) => (
-                <div key={t.categoryId} className="card card-hover p-4">
-                  <div className="text-xs font-medium text-ink-muted">{t.categoryName}</div>
-                  <div className="mt-1 text-lg font-semibold tabular">{formatTaka(t.amount)}</div>
-                </div>
+                <Card key={t.categoryId} className="min-w-0 p-4 hover:-translate-y-0.5 hover:border-schist-300 hover:shadow-lift">
+                  <div className="truncate text-xs font-medium text-ink-muted">{t.categoryName}</div>
+                  <div className="mt-1 truncate text-lg font-semibold tabular">{formatTaka(t.amount)}</div>
+                </Card>
               ))}
             </section>
           ) : null}
 
-          <section className="card overflow-hidden">
-            <div className="overflow-x-auto">
-              {list.data.length === 0 ? (
-                <p className="px-5 py-8 text-sm text-ink-muted">
-                  No expenses for this period. Add your Facebook ad spend first; it is usually the biggest one.
-                </p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead className="border-b border-line/70 bg-paper/50">
-                    <tr>
-                      <th className="th">Date</th>
-                      <th className="th">Category</th>
-                      <th className="th">Note</th>
-                      <th className="th text-right">Amount</th>
-                      <th className="th">
+          {list.data.length === 0 ? (
+            <Card>
+              <p className="px-5 py-8 text-sm text-ink-muted">
+                No expenses for this period. Add your Facebook ad spend first; it is usually the biggest one.
+              </p>
+            </Card>
+          ) : (
+            <>
+              {/* Tablet and up: table */}
+              <Card className="hidden overflow-hidden md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead>Date</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Note</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>
                         <span className="sr-only">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line/60">
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {list.data.map((e) => (
-                      <tr key={e.id}>
-                        <td className="td tabular text-ink-muted">{e.expenseDate}</td>
-                        <td className="td">
+                      <TableRow key={e.id}>
+                        <TableCell className="whitespace-nowrap tabular text-ink-muted">{e.expenseDate}</TableCell>
+                        <TableCell>
                           {e.categoryName}
                           <span className="ml-1.5 text-xs text-ink-faint">{KIND_LABEL[e.kind]}</span>
-                        </td>
-                        <td className="td text-ink-muted">{e.note ?? ''}</td>
-                        <td className="td text-right font-medium tabular">{formatTaka(e.amount)}</td>
-                        <td className="td text-right">
+                        </TableCell>
+                        <TableCell className="max-w-[16rem] truncate text-ink-muted">{e.note ?? ''}</TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-medium tabular">{formatTaka(e.amount)}</TableCell>
+                        <TableCell className="text-right">
                           <DeleteExpenseButton id={e.id} />
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </section>
+                  </TableBody>
+                </Table>
+              </Card>
+
+              {/* Phone: stacked cards */}
+              <ul className="flex flex-col gap-2 md:hidden">
+                {list.data.map((e) => (
+                  <li key={e.id}>
+                    <Card className="flex items-center gap-3 p-3">
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate font-semibold">
+                            {e.categoryName}
+                            <span className="ml-1.5 text-xs font-normal text-ink-faint">{KIND_LABEL[e.kind]}</span>
+                          </span>
+                          <span className="shrink-0 font-medium tabular">{formatTaka(e.amount)}</span>
+                        </div>
+                        <div className="truncate text-xs text-ink-faint">
+                          <span className="tabular">{e.expenseDate}</span>
+                          {e.note ? ` · ${e.note}` : ''}
+                        </div>
+                      </div>
+                      <DeleteExpenseButton id={e.id} />
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
 
         <ExpenseForm categories={categories.data} today={todayIn()} />

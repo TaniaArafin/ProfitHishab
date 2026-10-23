@@ -3,6 +3,10 @@ import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Info, OctagonAl
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { formatTaka, formatTakaCompact, ORDER_STATUS_LABELS, type OrderStatus } from '@ph/shared';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+export { Skeleton } from '@/components/ui/skeleton';
 
 export function PageHeader({
   title,
@@ -24,7 +28,7 @@ export function PageHeader({
           </span>
         ) : null}
         <div className="min-w-0">
-          <h1 className="text-[26px] font-bold leading-tight tracking-tight sm:text-[28px]">{title}</h1>
+          <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-[28px]">{title}</h1>
           {description ? <div className="mt-1 text-sm text-ink-muted">{description}</div> : null}
         </div>
       </div>
@@ -33,28 +37,23 @@ export function PageHeader({
   );
 }
 
-const STATUS_STYLES: Record<OrderStatus, { pill: string; dot: string }> = {
-  new: { pill: 'bg-brand-soft text-ink ring-brand/15', dot: 'bg-brand' },
-  confirmed: { pill: 'bg-brand-soft text-ink ring-brand/15', dot: 'bg-brand' },
-  processing: { pill: 'bg-warn-soft text-warn ring-warn/15', dot: 'bg-warn' },
-  shipped: { pill: 'bg-info-soft text-info-ink ring-info/20', dot: 'bg-info' },
-  delivered: { pill: 'bg-gain-soft text-gain ring-gain/15', dot: 'bg-gain' },
-  cancelled: { pill: 'bg-paper text-ink-muted ring-line', dot: 'bg-ink-faint' },
-  returned: { pill: 'bg-loss-soft text-loss ring-loss/15', dot: 'bg-loss' },
+const STATUS_STYLES: Record<OrderStatus, { variant: 'default' | 'muted' | 'success' | 'warning' | 'info' | 'destructive'; dot: string }> = {
+  new: { variant: 'default', dot: 'bg-brand' },
+  confirmed: { variant: 'default', dot: 'bg-brand' },
+  processing: { variant: 'warning', dot: 'bg-warn' },
+  shipped: { variant: 'info', dot: 'bg-info' },
+  delivered: { variant: 'success', dot: 'bg-gain' },
+  cancelled: { variant: 'muted', dot: 'bg-ink-faint' },
+  returned: { variant: 'destructive', dot: 'bg-loss' },
 };
 
 export function StatusPill({ status }: { status: OrderStatus }) {
   const s = STATUS_STYLES[status];
   return (
-    <span
-      className={clsx(
-        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset',
-        s.pill,
-      )}
-    >
+    <Badge variant={s.variant}>
       <span className={clsx('h-1.5 w-1.5 rounded-full', s.dot)} aria-hidden />
       {ORDER_STATUS_LABELS[status]}
-    </span>
+    </Badge>
   );
 }
 
@@ -81,7 +80,7 @@ export function EmptyState({
   icon?: LucideIcon;
 }) {
   return (
-    <div className="card flex flex-col items-center gap-3 px-6 py-14 text-center">
+    <Card className="flex flex-col items-center gap-3 px-5 py-12 text-center sm:px-6 sm:py-14">
       {Icon ? (
         <span className="mb-1 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-ink">
           <Icon className="h-6 w-6" />
@@ -90,7 +89,7 @@ export function EmptyState({
       <h2 className="text-lg font-bold">{title}</h2>
       {body ? <p className="max-w-md text-sm text-ink-muted">{body}</p> : null}
       {actions ? <div className="mt-2 flex flex-wrap justify-center gap-2">{actions}</div> : null}
-    </div>
+    </Card>
   );
 }
 
@@ -149,37 +148,33 @@ export function Pagination({
     return `${path}?${sp.toString()}`;
   };
   return (
-    <nav className="flex items-center justify-between gap-3 text-sm" aria-label="Pagination">
+    <nav className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="Pagination">
       <span className="text-ink-muted tabular">
         Page {page} of {pages} · {total} total
       </span>
       <div className="flex gap-2">
         {page > 1 ? (
-          <Link className="btn-secondary px-3" href={href(page - 1)}>
-            <ChevronLeft className="h-4 w-4" /> Previous
-          </Link>
+          <Button asChild variant="secondary" className="px-3">
+            <Link href={href(page - 1)}>
+              <ChevronLeft className="h-4 w-4" /> Previous
+            </Link>
+          </Button>
         ) : null}
         {page < pages ? (
-          <Link className="btn-secondary px-3" href={href(page + 1)}>
-            Next <ChevronRight className="h-4 w-4" />
-          </Link>
+          <Button asChild variant="secondary" className="px-3">
+            <Link href={href(page + 1)}>
+              Next <ChevronRight className="h-4 w-4" />
+            </Link>
+          </Button>
         ) : null}
       </div>
     </nav>
   );
 }
 
-export function Skeleton({ className }: { className?: string }) {
-  return <div className={clsx('animate-pulse rounded-xl bg-line/60', className)} />;
-}
-
-/** Card wrapper for tables: rounded, clipped, scrolls horizontally on its own. */
+/** Card wrapper for a shadcn Table (which scrolls sideways on its own). */
 export function TableCard({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={clsx('card overflow-hidden', className)}>
-      <div className="overflow-x-auto">{children}</div>
-    </div>
-  );
+  return <Card className={clsx('overflow-hidden', className)}>{children}</Card>;
 }
 
 /** Round initials avatar; falls back to a person icon when the "name" is only a phone number. */

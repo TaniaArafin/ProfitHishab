@@ -5,6 +5,12 @@ import { useState, type FormEvent } from 'react';
 import { parseTaka, toTaka, type BusinessDto, type CourierDto } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { SelectField } from '@/components/SelectField';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
 import { refreshData } from '@/lib/navigation';
 
 /** Blank means 0 for these defaults. */
@@ -55,107 +61,89 @@ export function BusinessSettingsForm({ business, couriers }: { business: Busines
   }
 
   return (
-    <form onSubmit={submit} className="card flex max-w-2xl flex-col gap-4 p-5" noValidate>
-      <h2 className="font-semibold">Business</h2>
-      {saved ? <p className="rounded-md bg-gain-soft px-3 py-2 text-sm text-gain">Settings saved.</p> : null}
-      {error ? <p className="rounded-md bg-loss-soft px-3 py-2 text-sm text-loss">{error.message}</p> : null}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label" htmlFor="biz-name">
-            Business name
-          </label>
-          <input id="biz-name" className="input" value={form.name} onChange={set('name')} />
-          {fieldError(error, 'name') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'name')}</p> : null}
+    <Card className="w-full max-w-3xl">
+      <form onSubmit={submit} className="flex flex-col gap-4 p-4 sm:p-5" noValidate>
+        <h2 className="font-semibold">Business</h2>
+        {saved ? (
+          <Alert variant="success" role="status">
+            Settings saved.
+          </Alert>
+        ) : null}
+        {error ? <Alert variant="destructive">{error.message}</Alert> : null}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="biz-name">Business name</Label>
+            <Input id="biz-name" value={form.name} onChange={set('name')} />
+            {fieldError(error, 'name') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'name')}</p> : null}
+          </div>
+          <div>
+            <Label htmlFor="biz-phone">Phone</Label>
+            <Input id="biz-phone" value={form.phone} onChange={set('phone')} />
+          </div>
+          <div>
+            <Label htmlFor="biz-city">City</Label>
+            <Input id="biz-city" value={form.city} onChange={set('city')} />
+          </div>
+          <div>
+            <Label htmlFor="biz-fb">Facebook page</Label>
+            <Input id="biz-fb" value={form.facebookPageUrl} onChange={set('facebookPageUrl')} placeholder="https://facebook.com/yourpage" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label htmlFor="biz-address">Address</Label>
+            <Input id="biz-address" value={form.address} onChange={set('address')} />
+          </div>
         </div>
-        <div>
-          <label className="label" htmlFor="biz-phone">
-            Phone
-          </label>
-          <input id="biz-phone" className="input" value={form.phone} onChange={set('phone')} />
-        </div>
-        <div>
-          <label className="label" htmlFor="biz-city">
-            City
-          </label>
-          <input id="biz-city" className="input" value={form.city} onChange={set('city')} />
-        </div>
-        <div>
-          <label className="label" htmlFor="biz-fb">
-            Facebook page
-          </label>
-          <input
-            id="biz-fb"
-            className="input"
-            value={form.facebookPageUrl}
-            onChange={set('facebookPageUrl')}
-            placeholder="https://facebook.com/yourpage"
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label" htmlFor="biz-address">
-            Address
-          </label>
-          <input id="biz-address" className="input" value={form.address} onChange={set('address')} />
-        </div>
-      </div>
 
-      <h2 className="mt-2 font-semibold">Order defaults</h2>
-      <p className="-mt-2 text-sm text-ink-muted">Prefill new orders. Changing them does not change existing orders.</p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label" htmlFor="biz-courier">
-            Default courier
-          </label>
-          <SelectField
-            id="biz-courier"
-            value={form.defaultCourierId}
-            onValueChange={(value) => set('defaultCourierId')({ target: { value } })}
-            options={[{ value: '', label: 'None' }, ...couriers.filter((c) => c.isActive).map((c) => ({ value: c.id, label: c.name }))]}
-          />
+        <h2 className="mt-2 font-semibold">Order defaults</h2>
+        <p className="-mt-2 text-sm text-ink-muted">Prefill new orders. Changing them does not change existing orders.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label htmlFor="biz-courier">Default courier</Label>
+            <SelectField
+              id="biz-courier"
+              value={form.defaultCourierId}
+              onValueChange={(value) => set('defaultCourierId')({ target: { value } })}
+              options={[{ value: '', label: 'None' }, ...couriers.filter((c) => c.isActive).map((c) => ({ value: c.id, label: c.name }))]}
+            />
+          </div>
+          <div>
+            <Label htmlFor="biz-courier-cost">Courier cost per order (৳)</Label>
+            <Input
+              id="biz-courier-cost"
+              inputMode="decimal"
+              className="tabular"
+              value={form.defaultCourierCost}
+              onChange={set('defaultCourierCost')}
+            />
+          </div>
+          <div>
+            <Label htmlFor="biz-return-cost">Return charge per order (৳)</Label>
+            <Input
+              id="biz-return-cost"
+              inputMode="decimal"
+              className="tabular"
+              value={form.defaultReturnCost}
+              onChange={set('defaultReturnCost')}
+            />
+          </div>
+          <div>
+            <Label htmlFor="biz-packaging-cost">Packaging per order (৳)</Label>
+            <Input
+              id="biz-packaging-cost"
+              inputMode="decimal"
+              className="tabular"
+              value={form.defaultPackagingCost}
+              onChange={set('defaultPackagingCost')}
+            />
+          </div>
         </div>
         <div>
-          <label className="label" htmlFor="biz-courier-cost">
-            Courier cost per order (৳)
-          </label>
-          <input
-            id="biz-courier-cost"
-            inputMode="decimal"
-            className="input tabular"
-            value={form.defaultCourierCost}
-            onChange={set('defaultCourierCost')}
-          />
+          <Button type="submit" className="w-full sm:w-auto" disabled={pending}>
+            {pending ? 'Saving…' : 'Save settings'}
+          </Button>
         </div>
-        <div>
-          <label className="label" htmlFor="biz-return-cost">
-            Return charge per order (৳)
-          </label>
-          <input
-            id="biz-return-cost"
-            inputMode="decimal"
-            className="input tabular"
-            value={form.defaultReturnCost}
-            onChange={set('defaultReturnCost')}
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="biz-packaging-cost">
-            Packaging per order (৳)
-          </label>
-          <input
-            id="biz-packaging-cost"
-            inputMode="decimal"
-            className="input tabular"
-            value={form.defaultPackagingCost}
-            onChange={set('defaultPackagingCost')}
-          />
-        </div>
-      </div>
-      <div>
-        <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? 'Saving…' : 'Save settings'}
-        </button>
-      </div>
-    </form>
+      </form>
+    </Card>
   );
 }
 
@@ -172,45 +160,39 @@ export function CourierRow({ courier }: { courier: CourierDto }) {
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-3 py-3">
-      <div className="min-w-[120px] flex-1">
-        <div className={`font-medium ${courier.isActive ? '' : 'text-ink-faint line-through'}`}>{courier.name}</div>
-        {status ? <div className="text-xs text-ink-faint">{status}</div> : null}
+    <div className="grid grid-cols-2 items-end gap-3 py-3 sm:flex sm:flex-wrap">
+      <div className="col-span-2 min-w-0 sm:min-w-[120px] sm:flex-1">
+        <div className={cn('truncate font-medium', !courier.isActive && 'text-ink-faint line-through')}>{courier.name}</div>
+        {status ? (
+          <div className="text-xs text-ink-faint" role="status">
+            {status}
+          </div>
+        ) : null}
       </div>
-      <div className="w-28">
-        <label className="label text-xs" htmlFor={`c-cost-${courier.id}`}>
+      <div className="sm:w-28">
+        <Label className="text-xs" htmlFor={`c-cost-${courier.id}`}>
           Cost (৳)
-        </label>
-        <input
-          id={`c-cost-${courier.id}`}
-          inputMode="decimal"
-          className="input tabular"
-          value={cost}
-          onChange={(e) => setCost(e.target.value)}
-        />
+        </Label>
+        <Input id={`c-cost-${courier.id}`} inputMode="decimal" className="tabular" value={cost} onChange={(e) => setCost(e.target.value)} />
       </div>
-      <div className="w-28">
-        <label className="label text-xs" htmlFor={`c-ret-${courier.id}`}>
+      <div className="sm:w-28">
+        <Label className="text-xs" htmlFor={`c-ret-${courier.id}`}>
           Return (৳)
-        </label>
-        <input
+        </Label>
+        <Input
           id={`c-ret-${courier.id}`}
           inputMode="decimal"
-          className="input tabular"
+          className="tabular"
           value={returnCost}
           onChange={(e) => setReturnCost(e.target.value)}
         />
       </div>
-      <button
-        type="button"
-        className="btn-secondary"
-        onClick={() => save({ defaultCost: poisha(cost), defaultReturnCost: poisha(returnCost) })}
-      >
+      <Button type="button" variant="secondary" onClick={() => save({ defaultCost: poisha(cost), defaultReturnCost: poisha(returnCost) })}>
         Save
-      </button>
-      <button type="button" className="text-sm text-ink-muted underline" onClick={() => save({ isActive: !courier.isActive })}>
+      </Button>
+      <Button type="button" variant="link" className="min-h-10 justify-self-start" onClick={() => save({ isActive: !courier.isActive })}>
         {courier.isActive ? 'Deactivate' : 'Activate'}
-      </button>
+      </Button>
     </div>
   );
 }

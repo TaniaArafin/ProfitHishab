@@ -4,7 +4,13 @@ import Link from 'next/link';
 import { formatTaka, type CategoryDto, type ProductProfitDto, type ProductProfitReportDto } from '@ph/shared';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { SelectField } from '@/components/SelectField';
-import { EmptyState, Money, PageHeader } from '@/components/ui';
+import { EmptyState, Money, PageHeader, TableCard } from '@/components/ui';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { periodFromParams, periodLabel } from '@/lib/period';
 import { apiGet, qs } from '@/lib/server-api';
 
@@ -55,73 +61,114 @@ export default async function ProductProfitPage({ searchParams }: Props) {
             </p>
           ) : null}
 
-          <form className="card flex flex-wrap items-end gap-2 p-3" action="/reports/products">
-            {period.preset === 'custom' ? (
-              <>
-                <input type="hidden" name="from" value={period.from} />
-                <input type="hidden" name="to" value={period.to} />
-              </>
-            ) : (
-              <input type="hidden" name="period" value={period.preset} />
-            )}
-            <div className="min-w-[200px] flex-1">
-              <label className="sr-only" htmlFor="q">
-                Search
-              </label>
-              <input id="q" name="q" className="input" placeholder="Name or SKU" defaultValue={typeof sp.q === 'string' ? sp.q : ''} />
-            </div>
-            <label className="sr-only" htmlFor="categoryId">
-              Category
-            </label>
-            <SelectField
-              id="categoryId"
-              name="categoryId"
-              className="w-auto min-w-[10rem]"
-              defaultValue={typeof sp.categoryId === 'string' ? sp.categoryId : ''}
-              options={[{ value: '', label: 'All categories' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
-            />
-            <button className="btn-secondary" type="submit">
-              Apply
-            </button>
-          </form>
+          <Card>
+            <form className="flex flex-col gap-2 p-3 sm:flex-row sm:flex-wrap sm:items-end" action="/reports/products">
+              {period.preset === 'custom' ? (
+                <>
+                  <input type="hidden" name="from" value={period.from} />
+                  <input type="hidden" name="to" value={period.to} />
+                </>
+              ) : (
+                <input type="hidden" name="period" value={period.preset} />
+              )}
+              <div className="sm:min-w-[200px] sm:flex-1">
+                <Label className="sr-only" htmlFor="q">
+                  Search
+                </Label>
+                <Input id="q" name="q" type="search" placeholder="Name or SKU" defaultValue={typeof sp.q === 'string' ? sp.q : ''} />
+              </div>
+              <div>
+                <Label className="sr-only" htmlFor="categoryId">
+                  Category
+                </Label>
+                <SelectField
+                  id="categoryId"
+                  name="categoryId"
+                  className="sm:w-auto sm:min-w-[10rem]"
+                  defaultValue={typeof sp.categoryId === 'string' ? sp.categoryId : ''}
+                  options={[{ value: '', label: 'All categories' }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+                />
+              </div>
+              <Button variant="secondary" type="submit">
+                Apply
+              </Button>
+            </form>
+          </Card>
 
-          <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b border-line/70 bg-paper/50">
-                  <tr>
-                    <th className="th">Product</th>
-                    <th className="th text-right">Units</th>
-                    <th className="th text-right">Sales</th>
-                    <th className="th text-right">Cost</th>
-                    <th className="th text-right">Profit</th>
-                    <th className="th text-right">Margin</th>
-                    <th className="th text-right">Returned</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line/60">
-                  {report.rows.map((r) => (
-                    <tr key={r.productId} className="hover:bg-paper/60">
-                      <td className="td">
-                        <Link href={`/products/${r.productId}`} className="font-medium text-ink hover:underline">
-                          {r.name}
-                        </Link>
-                        <div className="text-xs text-ink-faint">{r.sku}</div>
-                      </td>
-                      <td className="td text-right tabular">{r.unitsSold}</td>
-                      <td className="td text-right tabular">{formatTaka(r.sales)}</td>
-                      <td className="td text-right tabular text-ink-muted">{formatTaka(r.cost)}</td>
-                      <td className="td text-right font-medium">
-                        <Money value={r.profit} tone />
-                      </td>
-                      <td className={`td text-right tabular ${r.margin < 15 ? 'text-loss' : ''}`}>{r.margin}%</td>
-                      <td className={`td text-right tabular ${r.unitsReturned > 0 ? 'text-loss' : 'text-ink-faint'}`}>{r.unitsReturned}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {/* Tablet and up: table */}
+          <TableCard className="hidden md:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Product</TableHead>
+                  <TableHead className="text-right">Units</TableHead>
+                  <TableHead className="text-right">Sales</TableHead>
+                  <TableHead className="hidden text-right lg:table-cell">Cost</TableHead>
+                  <TableHead className="text-right">Profit</TableHead>
+                  <TableHead className="text-right">Margin</TableHead>
+                  <TableHead className="text-right">Returned</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {report.rows.map((r) => (
+                  <TableRow key={r.productId}>
+                    <TableCell className="max-w-[18rem]">
+                      <Link href={`/products/${r.productId}`} className="block truncate font-medium text-ink hover:underline">
+                        {r.name}
+                      </Link>
+                      <div className="text-xs text-ink-faint">{r.sku}</div>
+                    </TableCell>
+                    <TableCell className="text-right tabular">{r.unitsSold}</TableCell>
+                    <TableCell className="text-right tabular">{formatTaka(r.sales)}</TableCell>
+                    <TableCell className="hidden text-right tabular text-ink-muted lg:table-cell">{formatTaka(r.cost)}</TableCell>
+                    <TableCell className="text-right font-medium">
+                      <Money value={r.profit} tone />
+                    </TableCell>
+                    <TableCell className={cn('text-right tabular', r.margin < 15 && 'text-loss')}>{r.margin}%</TableCell>
+                    <TableCell className={cn('text-right tabular', r.unitsReturned > 0 ? 'text-loss' : 'text-ink-faint')}>
+                      {r.unitsReturned}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableCard>
+
+          {/* Phone: stacked cards */}
+          <ul className="flex flex-col gap-2 md:hidden">
+            {report.rows.map((r) => (
+              <li key={r.productId}>
+                <Card className="flex flex-col gap-2 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <Link href={`/products/${r.productId}`} className="block truncate font-semibold text-ink hover:underline">
+                        {r.name}
+                      </Link>
+                      <div className="text-xs text-ink-faint">{r.sku}</div>
+                    </div>
+                    <Money value={r.profit} tone className="shrink-0 font-semibold" />
+                  </div>
+                  <dl className="grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <dt className="text-xs text-ink-faint">Sales</dt>
+                      <dd className="tabular">{formatTaka(r.sales)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-ink-faint">Units</dt>
+                      <dd className="tabular">
+                        {r.unitsSold}
+                        {r.unitsReturned > 0 ? <span className="text-loss"> · {r.unitsReturned} back</span> : null}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-ink-faint">Margin</dt>
+                      <dd className={cn('tabular', r.margin < 15 && 'text-loss')}>{r.margin}%</dd>
+                    </div>
+                  </dl>
+                </Card>
+              </li>
+            ))}
+          </ul>
           <p className="text-xs text-ink-faint">
             Order discounts are split across items by value. Courier, packaging and ad costs are not split across products yet; they appear
             on the dashboard.
@@ -134,7 +181,7 @@ export default async function ProductProfitPage({ searchParams }: Props) {
 
 function Highlight({ label, row, value, bad }: { label: string; row: ProductProfitDto | null; value: React.ReactNode; bad?: boolean }) {
   return (
-    <div className="card card-hover flex flex-col gap-1 p-4">
+    <Card className="flex min-w-0 hover:-translate-y-0.5 hover:border-schist-300 hover:shadow-lift flex-col gap-1 p-4">
       <span className="text-xs font-medium text-ink-muted">{label}</span>
       {row ? (
         <>
@@ -144,6 +191,6 @@ function Highlight({ label, row, value, bad }: { label: string; row: ProductProf
       ) : (
         <span className="text-sm text-ink-faint">Not enough sales yet</span>
       )}
-    </div>
+    </Card>
   );
 }

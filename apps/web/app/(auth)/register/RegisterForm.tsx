@@ -6,6 +6,10 @@ import { useState, type FormEvent } from 'react';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { navigateFresh } from '@/lib/navigation';
 import { SelectField } from '@/components/SelectField';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 const BUSINESS_TYPES = ['Clothing & fashion', 'Cosmetics & beauty', 'Electronics & gadgets', 'Food & grocery', 'Home & lifestyle', 'Other'];
 
@@ -48,54 +52,40 @@ export function RegisterForm() {
         <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
         <p className="mt-1 text-sm text-ink-muted">Free while we are in early access. Currency is BDT.</p>
       </div>
-      {error && !error.fields ? (
-        <p className="rounded-md bg-loss-soft px-3 py-2 text-sm text-loss" role="alert">
-          {error.message}
-        </p>
-      ) : null}
+      {error && !error.fields ? <Alert variant="destructive">{error.message}</Alert> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="name">
-            Your name
-          </label>
-          <input id="name" name="name" className="input" autoComplete="name" required />
+          <Label htmlFor="name">Your name</Label>
+          <Input id="name" name="name" autoComplete="name" required />
           {err('name')}
         </div>
         <div>
-          <label className="label" htmlFor="businessName">
-            Business name
-          </label>
-          <input id="businessName" name="businessName" className="input" autoComplete="organization" required />
+          <Label htmlFor="businessName">Business name</Label>
+          <Input id="businessName" name="businessName" autoComplete="organization" required />
           {err('businessName')}
         </div>
       </div>
       <div>
-        <label className="label" htmlFor="email">
-          Email
-        </label>
-        <input id="email" name="email" type="email" className="input" autoComplete="email" />
+        <Label htmlFor="email">Email</Label>
+        <Input id="email" name="email" type="email" autoComplete="email" />
         {err('email')}
       </div>
       <div>
-        <label className="label" htmlFor="phone">
+        <Label htmlFor="phone">
           Phone <span className="font-normal text-ink-faint">(email or phone is required)</span>
-        </label>
-        <input id="phone" name="phone" type="tel" className="input" autoComplete="tel" placeholder="017XXXXXXXX" />
+        </Label>
+        <Input id="phone" name="phone" type="tel" autoComplete="tel" placeholder="017XXXXXXXX" />
         {err('phone')}
       </div>
       <div>
-        <label className="label" htmlFor="password">
-          Password
-        </label>
-        <input id="password" name="password" type="password" className="input" autoComplete="new-password" minLength={8} required />
+        <Label htmlFor="password">Password</Label>
+        <Input id="password" name="password" type="password" autoComplete="new-password" minLength={8} required />
         <p className="mt-1 text-xs text-ink-faint">At least 8 characters.</p>
         {err('password')}
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="businessType">
-            Business type
-          </label>
+          <Label htmlFor="businessType">Business type</Label>
           <SelectField
             id="businessType"
             name="businessType"
@@ -104,18 +94,16 @@ export function RegisterForm() {
           />
         </div>
         <div>
-          <label className="label" htmlFor="city">
-            City
-          </label>
-          <input id="city" name="city" className="input" placeholder="Dhaka" />
+          <Label htmlFor="city">City</Label>
+          <Input id="city" name="city" placeholder="Dhaka" />
         </div>
       </div>
-      <button type="submit" className="btn-primary py-2.5" disabled={pending}>
+      <Button type="submit" size="lg" className="w-full" disabled={pending}>
         {pending ? 'Creating account…' : 'Create account'}
-      </button>
+      </Button>
       <p className="text-center text-sm text-ink-muted">
         Already have an account?{' '}
-        <Link href="/login" className="font-semibold text-ink">
+        <Link href="/login" className="font-semibold text-ink underline-offset-4 hover:underline">
           Log in
         </Link>
       </p>

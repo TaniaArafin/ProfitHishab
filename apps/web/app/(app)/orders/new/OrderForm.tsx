@@ -20,6 +20,10 @@ import {
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { navigateFresh, refreshData } from '@/lib/navigation';
 import { SelectField } from '@/components/SelectField';
+import { Alert } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useCustomerLookup } from '@/lib/hooks';
 import { CustomerFields } from './CustomerFields';
 import { LineItems, type Line } from './LineItems';
@@ -187,17 +191,13 @@ export function OrderForm({
   }
 
   return (
-    <form onSubmit={submit} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]" noValidate>
+    <form onSubmit={submit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]" noValidate>
       <div className="flex min-w-0 flex-col gap-5">
-        {error ? (
-          <p className="rounded-xl bg-loss-soft px-3 py-2 text-sm text-loss" role="alert">
-            {error.message}
-          </p>
-        ) : null}
+        {error ? <Alert variant="destructive">{error.message}</Alert> : null}
         {saved ? (
-          <p className="rounded-xl bg-gain-soft px-3 py-2 text-sm text-gain" role="status">
+          <Alert variant="success" role="status">
             {saved}
-          </p>
+          </Alert>
         ) : null}
 
         <CustomerFields
@@ -219,94 +219,82 @@ export function OrderForm({
           error={fieldError(error, 'items')}
         />
 
-        <section className="card grid gap-4 p-5 sm:grid-cols-2" aria-labelledby="delivery-heading">
-          <h2 id="delivery-heading" className="font-semibold sm:col-span-2">
-            Delivery & payment
-          </h2>
-          <div>
-            <label className="label" htmlFor="courier">
-              Courier
-            </label>
-            <SelectField
-              id="courier"
-              value={courierId}
-              onValueChange={(id) => {
-                setCourierId(id);
-                setCourierCost(
-                  takaText(
-                    defaultCourierCost(
-                      business,
-                      couriers.find((c) => c.id === id),
+        <Card role="region" aria-labelledby="delivery-heading">
+          <CardHeader>
+            <CardTitle id="delivery-heading">Delivery & payment</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="courier">Courier</Label>
+              <SelectField
+                id="courier"
+                value={courierId}
+                onValueChange={(id) => {
+                  setCourierId(id);
+                  setCourierCost(
+                    takaText(
+                      defaultCourierCost(
+                        business,
+                        couriers.find((c) => c.id === id),
+                      ),
                     ),
-                  ),
-                );
-              }}
-              options={[{ value: '', label: 'No courier' }, ...couriers.map((c) => ({ value: c.id, label: c.name }))]}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="payment">
-              Payment
-            </label>
-            <SelectField
-              id="payment"
-              value={paymentMethod}
-              onValueChange={(m) => setPaymentMethod(m as PaymentMethod)}
-              options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="order-date">
-              Order date
-            </label>
-            <input id="order-date" type="date" className="input" value={orderDate} onChange={(e) => changeOrderDate(e.target.value)} />
-            {fieldError(error, 'orderDate') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'orderDate')}</p> : null}
-          </div>
-          <div>
-            <label className="label" htmlFor="status">
-              Status
-            </label>
-            <SelectField
-              id="status"
-              value={status}
-              onValueChange={(s) => setStatus(s as CreatableStatus)}
-              options={CREATABLE_ORDER_STATUSES.map((s) => ({ value: s, label: ORDER_STATUS_LABELS[s] }))}
-            />
-          </div>
-          <div>
-            <label className="label" htmlFor="discount">
-              Discount (৳)
-            </label>
-            <input
-              id="discount"
-              inputMode="decimal"
-              className="input tabular"
-              placeholder="0"
-              value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
-            />
-            {fieldError(error, 'discount') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'discount')}</p> : null}
-          </div>
-          <div>
-            <label className="label" htmlFor="delivery-charge">
-              Delivery charge from customer (৳)
-            </label>
-            <input
-              id="delivery-charge"
-              inputMode="decimal"
-              className="input tabular"
-              placeholder="0"
-              value={deliveryCharge}
-              onChange={(e) => setDeliveryCharge(e.target.value)}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="label" htmlFor="note">
-              Note
-            </label>
-            <input id="note" className="input" value={note} onChange={(e) => setNote(e.target.value)} />
-          </div>
-        </section>
+                  );
+                }}
+                options={[{ value: '', label: 'No courier' }, ...couriers.map((c) => ({ value: c.id, label: c.name }))]}
+              />
+            </div>
+            <div>
+              <Label htmlFor="payment">Payment</Label>
+              <SelectField
+                id="payment"
+                value={paymentMethod}
+                onValueChange={(m) => setPaymentMethod(m as PaymentMethod)}
+                options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="order-date">Order date</Label>
+              <Input id="order-date" type="date" value={orderDate} onChange={(e) => changeOrderDate(e.target.value)} />
+              {fieldError(error, 'orderDate') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'orderDate')}</p> : null}
+            </div>
+            <div>
+              <Label htmlFor="status">Status</Label>
+              <SelectField
+                id="status"
+                value={status}
+                onValueChange={(s) => setStatus(s as CreatableStatus)}
+                options={CREATABLE_ORDER_STATUSES.map((s) => ({ value: s, label: ORDER_STATUS_LABELS[s] }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="discount">Discount (৳)</Label>
+              <Input
+                id="discount"
+                inputMode="decimal"
+                className="tabular"
+                placeholder="0"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value)}
+              />
+              {fieldError(error, 'discount') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'discount')}</p> : null}
+            </div>
+            <div>
+              <Label htmlFor="delivery-charge">Delivery charge from customer (৳)</Label>
+              <Input
+                id="delivery-charge"
+                inputMode="decimal"
+                className="tabular"
+                placeholder="0"
+                value={deliveryCharge}
+                onChange={(e) => setDeliveryCharge(e.target.value)}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label htmlFor="note">Note</Label>
+              <Input id="note" value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <OrderSummary

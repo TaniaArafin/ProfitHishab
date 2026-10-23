@@ -12,12 +12,13 @@ import {
   ShoppingBag,
   Users,
   Wallet,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, type MouseEvent, type ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { api } from '@/lib/client-api';
 import { navigateFresh } from '@/lib/navigation';
 import { LogoMark } from './LogoMark';
@@ -163,15 +164,16 @@ export function AppShell({ businessName, userName, children }: { businessName: s
               {initials(userName)}
             </span>
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink/85">{userName}</span>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={logout}
-              className="rounded-lg p-2 text-ink/50 transition hover:bg-white/50 hover:text-ink"
+              className="text-ink/50 hover:bg-white/50 hover:text-ink"
               aria-label="Log out"
               title="Log out"
             >
               <LogOut className="h-4 w-4" />
-            </button>
+            </Button>
           </div>
         </div>
       </aside>
@@ -194,44 +196,12 @@ export function AppShell({ businessName, userName, children }: { businessName: s
           </span>
         </header>
 
-        <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 pb-32 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pt-10">{children}</main>
+        <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 2xl:max-w-[1400px] pb-32 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pt-10">
+          {children}
+        </main>
 
         {/* Phone bottom tabs */}
         <nav className="fixed inset-x-0 bottom-0 z-30 lg:hidden" aria-label="Main">
-          {moreOpen ? (
-            <div className="mx-3 mb-2 overflow-hidden rounded-2xl border border-line bg-card shadow-lift">
-              <ul className="grid grid-cols-2 gap-1 p-2">
-                {ALL_ITEMS.filter((n) => !TABS.some((t) => t.href === n.href)).map(({ href, label, icon: Icon }) => (
-                  <li key={href}>
-                    <Link
-                      href={href}
-                      onClick={(e) => {
-                        setMoreOpen(false);
-                        navigate(href)(e);
-                      }}
-                      className={clsx(
-                        'flex items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-medium',
-                        isActive(href) ? 'bg-brand-soft text-ink' : 'hover:bg-paper',
-                      )}
-                    >
-                      <Icon className="h-[18px] w-[18px]" />
-                      {label}
-                    </Link>
-                  </li>
-                ))}
-                <li>
-                  <button
-                    type="button"
-                    onClick={logout}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-medium text-loss hover:bg-loss-soft"
-                  >
-                    <LogOut className="h-[18px] w-[18px]" />
-                    Log out
-                  </button>
-                </li>
-              </ul>
-            </div>
-          ) : null}
           <div className="border-t border-line/70 bg-white/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-md">
             <div className="grid grid-cols-5 items-end text-[11px] font-semibold">
               {TABS.slice(0, 2).map((tab) => (
@@ -247,15 +217,49 @@ export function AppShell({ businessName, userName, children }: { businessName: s
                 </Link>
               </div>
               <TabLink tab={TABS[2]} active={isActive(TABS[2].href)} current={isCurrent(TABS[2].href)} onClick={navigate(TABS[2].href)} />
-              <button
-                type="button"
-                onClick={() => setMoreOpen((v) => !v)}
-                aria-expanded={moreOpen}
-                className={clsx('flex flex-col items-center gap-1 py-2.5', moreOpen ? 'text-ink' : 'text-ink-faint')}
-              >
-                {moreOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                More
-              </button>
+              <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+                <SheetTrigger className={clsx('flex flex-col items-center gap-1 py-2.5', moreOpen ? 'text-ink' : 'text-ink-faint')}>
+                  <Menu className="h-5 w-5" />
+                  More
+                </SheetTrigger>
+                <SheetContent side="bottom" className="mx-auto max-w-lg">
+                  <SheetHeader>
+                    <SheetTitle>More</SheetTitle>
+                    <SheetDescription className="truncate">{businessName}</SheetDescription>
+                  </SheetHeader>
+                  <ul className="grid grid-cols-2 gap-1">
+                    {ALL_ITEMS.filter((n) => !TABS.some((t) => t.href === n.href)).map(({ href, label, icon: Icon }) => (
+                      <li key={href}>
+                        <Link
+                          href={href}
+                          onClick={(e) => {
+                            setMoreOpen(false);
+                            navigate(href)(e);
+                          }}
+                          aria-current={isCurrent(href) ? 'page' : undefined}
+                          className={clsx(
+                            'flex min-h-12 items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-medium',
+                            isActive(href) ? 'bg-brand-soft text-ink' : 'hover:bg-paper',
+                          )}
+                        >
+                          <Icon className="h-[18px] w-[18px] shrink-0" />
+                          {label}
+                        </Link>
+                      </li>
+                    ))}
+                    <li>
+                      <Button
+                        variant="ghost"
+                        onClick={logout}
+                        className="min-h-12 w-full justify-start gap-2.5 px-3 font-medium text-loss hover:bg-loss-soft hover:text-loss"
+                      >
+                        <LogOut className="h-[18px] w-[18px]" />
+                        Log out
+                      </Button>
+                    </li>
+                  </ul>
+                </SheetContent>
+              </Sheet>
             </div>
           </div>
         </nav>

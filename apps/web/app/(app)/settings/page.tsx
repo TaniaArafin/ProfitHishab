@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Settings } from 'lucide-react';
 import type { BusinessDto, CourierDto } from '@ph/shared';
 import { PageHeader } from '@/components/ui';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiGet } from '@/lib/server-api';
 import { BusinessSettingsForm, CourierRow } from './SettingsForms';
 
@@ -16,17 +17,17 @@ export default async function SettingsPage() {
     <div className="flex flex-col gap-6">
       <PageHeader icon={Settings} title="Settings" description="Business details, order defaults and couriers." />
       <BusinessSettingsForm business={business} couriers={couriers} />
-      <section className="card flex max-w-2xl flex-col gap-3 p-5">
-        <div>
-          <h2 className="font-semibold">Couriers</h2>
-          <p className="text-sm text-ink-muted">What each courier charges you. Used to prefill the courier cost on new orders.</p>
-        </div>
-        <div className="flex flex-col divide-y divide-line/60">
+      <Card className="w-full max-w-3xl">
+        <CardHeader>
+          <CardTitle>Couriers</CardTitle>
+          <CardDescription>What each courier charges you. Used to prefill the courier cost on new orders.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col divide-y divide-line/60 pt-2 sm:pt-2">
           {couriers.map((c) => (
             <CourierRow key={c.id} courier={c} />
           ))}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -5,7 +5,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { SelectField } from '@/components/SelectField';
+import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
+import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { periodLabel } from '@/lib/period';
 
@@ -50,10 +52,10 @@ export function PeriodSelector({ preset, from, to }: { preset: string; from: str
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <label className="sr-only" htmlFor="period-preset">
+    <div className="flex flex-wrap items-center gap-2">
+      <Label className="sr-only" htmlFor="period-preset">
         Period
-      </label>
+      </Label>
       <SelectField
         id="period-preset"
         className="w-auto min-w-[10rem]"
@@ -69,12 +71,17 @@ export function PeriodSelector({ preset, from, to }: { preset: string; from: str
       />
       {mode === 'custom' ? (
         <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-line bg-card px-3.5 py-2.5 text-[15px] text-ink shadow-[0_1px_2px_rgba(24,31,20,0.04)] transition hover:border-ink/20 data-[state=open]:border-brand data-[state=open]:ring-4 data-[state=open]:ring-brand/10">
+          <PopoverTrigger className="flex min-h-10 items-center gap-2 whitespace-nowrap rounded-xl border border-line bg-card px-3.5 py-2.5 text-[15px] text-ink shadow-[0_1px_2px_rgba(24,31,20,0.04)] transition hover:border-ink/20 data-[state=open]:border-brand data-[state=open]:ring-4 data-[state=open]:ring-brand/10">
             <CalendarDays className="h-4 w-4 text-ink-faint" />
             {range?.from && range.to ? periodLabel(toIso(range.from), toIso(range.to)) : 'Pick dates'}
           </PopoverTrigger>
           {/* The period dropdown takes focus back as it closes; that must not close the calendar it just opened. */}
-          <PopoverContent align="end" className="w-auto" onFocusOutside={(e) => e.preventDefault()}>
+          <PopoverContent
+            align="end"
+            collisionPadding={12}
+            className="max-h-[var(--radix-popover-content-available-height)] w-auto max-w-[calc(100vw-1.5rem)] overflow-y-auto"
+            onFocusOutside={(e) => e.preventDefault()}
+          >
             <Calendar
               mode="range"
               numberOfMonths={2}
@@ -83,13 +90,13 @@ export function PeriodSelector({ preset, from, to }: { preset: string; from: str
               onSelect={setRange}
               disabled={{ after: new Date() }}
             />
-            <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-3">
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-3">
               <span className="text-sm text-ink-muted">
                 {range?.from && range.to ? periodLabel(toIso(range.from), toIso(range.to)) : 'Choose a start and end date'}
               </span>
-              <button type="button" className="btn-primary px-4 py-2" disabled={!range?.from || !range.to} onClick={apply}>
+              <Button type="button" disabled={!range?.from || !range.to} onClick={apply}>
                 Apply
-              </button>
+              </Button>
             </div>
           </PopoverContent>
         </Popover>

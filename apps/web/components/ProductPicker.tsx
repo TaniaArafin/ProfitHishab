@@ -1,10 +1,12 @@
 'use client';
 
-import clsx from 'clsx';
 import { Search } from 'lucide-react';
 import { useId, useState, type KeyboardEvent } from 'react';
 import { formatTaka, type ProductDto } from '@ph/shared';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useProductSearch } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
 
 /**
  * Search-as-you-type product picker following the WAI-ARIA combobox pattern:
@@ -46,19 +48,17 @@ export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto)
 
   return (
     <div className="relative">
-      <label className="label" htmlFor={`${id}-input`}>
-        Add product
-      </label>
+      <Label htmlFor={`${id}-input`}>Add product</Label>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" aria-hidden />
-        <input
+        <Input
           id={`${id}-input`}
           role="combobox"
           aria-expanded={showList}
           aria-controls={listId}
           aria-autocomplete="list"
           aria-activedescendant={showList ? `${id}-opt-${activeIndex}` : undefined}
-          className="input pl-10"
+          className="pl-10"
           placeholder="Search by name or SKU"
           value={term}
           autoComplete="off"
@@ -90,8 +90,8 @@ export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto)
               pick(p);
             }}
             onMouseEnter={() => setActive(i)}
-            className={clsx(
-              'flex cursor-pointer items-baseline justify-between gap-3 rounded-lg px-3 py-2 text-sm',
+            className={cn(
+              'flex min-h-10 cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm',
               i === activeIndex && 'bg-brand-soft',
             )}
           >
