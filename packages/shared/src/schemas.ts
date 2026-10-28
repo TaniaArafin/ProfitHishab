@@ -27,6 +27,9 @@ const uuid = z.string().uuid();
 
 // ── Auth ───────────────────────────────────────────────────────────────
 
+/** FR-AUTH-02: one rule for every new password (registration and reset). */
+const newPassword = z.string().min(8, 'Use at least 8 characters').max(200);
+
 /** Step 1 of registration: text a one-time code to this number. */
 export const otpRequestSchema = z.object({ phone });
 export type OtpRequestInput = z.infer<typeof otpRequestSchema>;
@@ -55,7 +58,7 @@ export const registerSchema = z
       .email('Enter a valid email')
       .optional()
       .or(z.literal('').transform(() => undefined)),
-    password: z.string().min(8, 'Use at least 8 characters').max(200),
+    password: newPassword,
     businessType: z.string().trim().max(60).optional(),
     city: z.string().trim().max(60).optional(),
   })
@@ -67,6 +70,19 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Enter your password'),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
+
+/** FR-AUTH-06: ask for a reset link by email. */
+export const forgotPasswordSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Enter a valid email'),
+});
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+/** The token from the emailed link, and the new password. */
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(20, 'This reset link is not complete. Open it from the email again.').max(200),
+  password: newPassword,
+});
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 // ── Business & couriers ────────────────────────────────────────────────
 

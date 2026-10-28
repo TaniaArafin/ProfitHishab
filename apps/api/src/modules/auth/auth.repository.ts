@@ -62,8 +62,12 @@ export class AuthRepository {
     return this.prisma.session.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
   }
 
-  revokeAllSessions(userId: string) {
-    return this.prisma.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  revokeAllSessions(userId: string, db: Tx = this.prisma) {
+    return db.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  }
+
+  updatePassword(userId: string, passwordHash: string, db: Tx) {
+    return db.user.update({ where: { id: userId }, data: { passwordHash }, select: { id: true } });
   }
 
   findUser(userId: string) {

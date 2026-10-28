@@ -94,6 +94,9 @@ jobs:
           SMS_DRIVER: log
           OTP_FIXED_CODE: '123456'
           ALLOW_INSECURE_OTP_IN_PRODUCTION: 'true'
+          # No mail service in CI: emails (password reset) are written to the log.
+          MAIL_DRIVER: log
+          ALLOW_LOG_MAIL_IN_PRODUCTION: 'true'
         run: npm run test:e2e
 
       - name: Upload Playwright report

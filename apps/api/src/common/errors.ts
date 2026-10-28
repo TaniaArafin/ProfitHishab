@@ -80,6 +80,11 @@ export class AuthError extends AppError {
     );
   }
 
+  static resetLinkInvalid(): AuthError {
+    const message = 'This reset link has expired or was already used. Ask for a new one.';
+    return new AuthError(422, 'reset_link_invalid', message, field('token', message));
+  }
+
   static tooManyFailedLogins(minutes: number): AuthError {
     return new AuthError(429, 'rate_limited', `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
   }

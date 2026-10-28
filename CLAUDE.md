@@ -91,6 +91,10 @@ Precedence: the user's instruction in the current turn → this file → the ski
 - SMS goes through `SmsSender`, chosen by `SMS_DRIVER`. Only `log` exists (writes the code to the log); `OTP_FIXED_CODE` makes codes predictable for dev and e2e. With `OTP_REQUIRED=true`, production refuses to start on `log` unless `ALLOW_INSECURE_OTP_IN_PRODUCTION=true` (test runs only).
 - API tests run with codes on (`test/setup-env.ts`); `test/signup-free-mode.e2e-spec.ts` covers codes off. The Playwright flow follows whichever mode the API is in.
 
+**Forgot password** (FR-AUTH-06)
+- `POST /auth/password/forgot {email}` always answers 202 `{ ok: true }` (FR-AUTH-03); past 3 links an hour per account it quietly sends nothing. The email is sent without awaiting, so a real account answers no slower than an unknown one. `POST /auth/password/reset {token, password}` sets the password, closes every link of the user and revokes all sessions in one transaction, then lifts the account's login lock-out. Links: 32 random bytes, SHA-256 stored, 60 minutes, single use, only the newest works (`password-reset.service.ts`).
+- Email goes through `Mailer`, chosen by `MAIL_DRIVER`: `log` (dev, tests) or `smtp` (any SMTP service; `SMTP_*`, `MAIL_FROM`). Links point at `WEB_ORIGIN`. Production refuses `log` unless `ALLOW_LOG_MAIL_IN_PRODUCTION=true` (CI's e2e only). Accounts with only a phone cannot reset by email yet (FR-AUTH-07, SMS reset, is not built).
+
 **Idempotency** [controller-idempotency-key-on-unsafe-writes]
 - `POST /orders` requires an `Idempotency-Key` header (8–100 chars). Same key + same body replays the original order; same key + different body is 409. Keys are scoped per business. Add the same treatment to any new create endpoint a phone may retry.
 

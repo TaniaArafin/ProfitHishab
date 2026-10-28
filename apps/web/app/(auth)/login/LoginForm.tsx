@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { navigateFresh } from '@/lib/navigation';
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({ next, passwordWasReset = false }: { next: string; passwordWasReset?: boolean }) {
   const router = useRouter();
   const [error, setError] = useState<ApiError | null>(null);
   const [pending, setPending] = useState(false);
@@ -34,6 +34,11 @@ export function LoginForm({ next }: { next: string }) {
         <h1 className="text-2xl font-bold tracking-tight">Log in</h1>
         <p className="mt-1 text-sm text-ink-muted">Welcome back. See how your business is doing.</p>
       </div>
+      {passwordWasReset && !error ? (
+        <Alert variant="success" role="status">
+          Password changed. Log in with your new password.
+        </Alert>
+      ) : null}
       {error && !error.fields ? <Alert variant="destructive">{error.message}</Alert> : null}
       <div>
         <Label htmlFor="identifier">Email or phone</Label>
@@ -41,7 +46,15 @@ export function LoginForm({ next }: { next: string }) {
         {fieldError(error, 'identifier') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'identifier')}</p> : null}
       </div>
       <div>
-        <Label htmlFor="password">Password</Label>
+        <div className="flex items-baseline justify-between gap-2">
+          <Label htmlFor="password">Password</Label>
+          <Link
+            href="/forgot-password"
+            className="mb-1.5 text-sm font-medium text-ink-muted underline-offset-4 hover:text-ink hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <Input id="password" name="password" type="password" autoComplete="current-password" required />
         {fieldError(error, 'password') ? <p className="mt-1 text-sm text-loss">{fieldError(error, 'password')}</p> : null}
       </div>
