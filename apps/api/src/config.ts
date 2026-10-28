@@ -25,7 +25,15 @@ const schema = z
     TYPESENSE_API_KEY: z.string().min(1).optional(),
     TYPESENSE_COLLECTION: z.string().min(1).default('products'),
     /**
-     * How registration codes are sent. Only `log` exists until an SMS gateway is chosen:
+     * true: sign-up confirms the phone with an SMS code (one trial per verified number).
+     * false (test phase, default): email or phone and a password, no SMS. The 7-day trial applies either way.
+     */
+    OTP_REQUIRED: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    /**
+     * How registration codes are sent (only when OTP_REQUIRED is on). Only `log` exists until an SMS gateway is chosen:
      * it writes the code to the API log instead of texting it.
      */
     SMS_DRIVER: z.enum(['log']).default('log'),
@@ -35,8 +43,8 @@ const schema = z
       .regex(/^\d{6}$/, 'must be 6 digits')
       .optional(),
     /**
-     * Production refuses `SMS_DRIVER=log` and `OTP_FIXED_CODE`, because anyone could register without
-     * owning the phone. Only a production-mode test run (CI) sets this to allow them.
+     * With OTP_REQUIRED on, production refuses `SMS_DRIVER=log`, because anyone could register without
+     * owning the phone. Only a production-mode test run (CI) sets this to allow it.
      */
     ALLOW_INSECURE_OTP_IN_PRODUCTION: z
       .enum(['true', 'false'])
@@ -44,7 +52,7 @@ const schema = z
       .transform((v) => v === 'true'),
   })
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === 'production' && !env.ALLOW_INSECURE_OTP_IN_PRODUCTION) {
+    if (env.OTP_REQUIRED && env.NODE_ENV === 'production' && !env.ALLOW_INSECURE_OTP_IN_PRODUCTION) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['SMS_DRIVER'],
@@ -65,7 +73,7 @@ export type AppConfig = Readonly<{
   registerLimitPer15Minutes: number;
   login: { maxFailures: number; windowMs: number };
   search: { url: string; apiKey: string; collection: string } | null;
-  sms: { driver: 'log'; fixedCode: string | null };
+  sms: { otpRequired: boolean; driver: 'log'; fixedCode: string | null };
 }>;
 
 let cached: AppConfig | null = null;
@@ -92,7 +100,7 @@ export function config(): AppConfig {
       env.SEARCH_DRIVER === 'typesense' && env.TYPESENSE_URL && env.TYPESENSE_API_KEY
         ? { url: env.TYPESENSE_URL, apiKey: env.TYPESENSE_API_KEY, collection: env.TYPESENSE_COLLECTION }
         : null,
-    sms: { driver: env.SMS_DRIVER, fixedCode: env.OTP_FIXED_CODE ?? null },
+    sms: { otpRequired: env.OTP_REQUIRED, driver: env.SMS_DRIVER, fixedCode: env.OTP_FIXED_CODE ?? null },
   });
   return cached;
 }

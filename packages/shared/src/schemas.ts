@@ -37,23 +37,29 @@ const otpCode = z
   .transform((v) => toAsciiDigits(v).replace(/\s/g, ''))
   .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from the SMS'));
 
-/** Step 2: the phone is verified with its code; email is optional. */
-export const registerSchema = z.object({
-  name: z.string().trim().min(2, 'Enter your name').max(100),
-  businessName: z.string().trim().min(2, 'Enter your business name').max(120),
-  phone,
-  code: otpCode,
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .email('Enter a valid email')
-    .optional()
-    .or(z.literal('').transform(() => undefined)),
-  password: z.string().min(8, 'Use at least 8 characters').max(200),
-  businessType: z.string().trim().max(60).optional(),
-  city: z.string().trim().max(60).optional(),
-});
+/**
+ * The account. Which fields are required depends on the API's OTP_REQUIRED setting (see
+ * GET /auth/signup-options): with it on, `phone` and its SMS `code` are required (the API checks);
+ * with it off, an email or a phone is enough and `code` is ignored.
+ */
+export const registerSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Enter your name').max(100),
+    businessName: z.string().trim().min(2, 'Enter your business name').max(120),
+    phone: phone.optional().or(z.literal('').transform(() => undefined)),
+    code: otpCode.optional().or(z.literal('').transform(() => undefined)),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email('Enter a valid email')
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+    password: z.string().min(8, 'Use at least 8 characters').max(200),
+    businessType: z.string().trim().max(60).optional(),
+    city: z.string().trim().max(60).optional(),
+  })
+  .refine((d) => d.email || d.phone, { message: 'Enter an email or a phone number', path: ['email'] });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({

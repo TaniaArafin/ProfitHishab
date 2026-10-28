@@ -8,7 +8,7 @@ test('a new seller sees their real profit after their first delivered order', as
   const email = `e2e-${testInfo.project.name}-${Date.now()}@example.com`;
   // A fresh number per run and project (017… desktop, 018… phone), so each run gets its own free trial.
   const phone = `01${testInfo.project.name === 'phone' ? 8 : 7}${String(Date.now()).slice(-8)}`;
-  // The API's OTP_FIXED_CODE (dev .env and CI): the code is not texted in tests.
+  // Used only when the API has OTP_REQUIRED=true: its OTP_FIXED_CODE (dev .env and CI); nothing is texted in tests.
   const code = process.env.E2E_OTP_CODE ?? '123456';
 
   await test.step('register', async () => {
@@ -16,8 +16,12 @@ test('a new seller sees their real profit after their first delivered order', as
     await page.getByLabel('Your name').fill('Nusrat Jahan');
     await page.getByLabel('Business name').fill('E2E Fashion');
     await page.getByLabel('Mobile number').fill(phone);
-    await page.getByRole('button', { name: 'Send code' }).click();
-    await page.getByLabel('SMS code').fill(code);
+    // The API decides (OTP_REQUIRED): with codes on, confirm the number first.
+    const sendCode = page.getByRole('button', { name: 'Send code' });
+    if (await sendCode.isVisible()) {
+      await sendCode.click();
+      await page.getByLabel('SMS code').fill(code);
+    }
     await page.getByLabel(/^Email/).fill(email);
     await page.getByLabel('Password', { exact: true }).fill('secret-pass-1');
     await page.getByRole('button', { name: 'Create account' }).click();

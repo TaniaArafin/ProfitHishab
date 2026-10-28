@@ -25,7 +25,7 @@ npm run dev:web                       # http://localhost:3000
 
 Open http://localhost:3000 and create an account. The browser only talks to the web app; `/api/*` is proxied to the API so the session cookie is first-party.
 
-Registration confirms the mobile number with an SMS code. There is no SMS gateway yet: the API prints each code in its terminal (`SMS to 017…: Your ProfitHishab code is …`), and with `OTP_FIXED_CODE=123456` in `apps/api/.env` the code is always `123456`. Production refuses to start until a real gateway is added.
+Sign-up has two modes, set by `OTP_REQUIRED` in `apps/api/.env`. `false` (default, test phase): email or phone and a password. `true`: the mobile number is confirmed with an SMS code; there is no SMS gateway yet, so the API prints each code in its terminal (`SMS to 017…: Your ProfitHishab code is …`), and with `OTP_FIXED_CODE=123456` it is always `123456`. Every new account gets a 7-day free trial in both modes, then becomes read-only.
 
 If the API fails with Prisma `P1001` while the `db` container is healthy (OrbStack sometimes leaves the port unattached after `db:up`), run `docker compose restart db`.
 

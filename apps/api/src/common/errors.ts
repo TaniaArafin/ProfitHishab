@@ -47,6 +47,21 @@ export class AuthError extends AppError {
     return new AuthError(422, 'otp_wrong', message, field('code', message));
   }
 
+  static phoneRequired(): AuthError {
+    const message = 'Enter your mobile number';
+    return new AuthError(422, 'validation_failed', message, field('phone', message));
+  }
+
+  static codeRequired(): AuthError {
+    const message = 'Enter the 6-digit code from the SMS';
+    return new AuthError(422, 'validation_failed', message, field('code', message));
+  }
+
+  /** OTP_REQUIRED is off: sign-up needs no code, so none is sent (and no SMS is paid for). */
+  static otpNotEnabled(): AuthError {
+    return new AuthError(400, 'otp_not_enabled', 'Sign-up does not need a code right now.');
+  }
+
   /** No live code for this phone: never sent, expired, used, or locked after too many wrong tries. */
   static codeExpired(): AuthError {
     const message = 'This code has expired. Send a new code.';

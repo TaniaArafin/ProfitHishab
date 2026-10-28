@@ -10,12 +10,12 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { TRIAL_DAYS } from '@ph/shared';
 import { PhoneVerification } from './PhoneVerification';
 
 const BUSINESS_TYPES = ['Clothing & fashion', 'Cosmetics & beauty', 'Electronics & gadgets', 'Food & grocery', 'Home & lifestyle', 'Other'];
 
-export function RegisterForm() {
+/** `otpRequired` comes from the API (OTP_REQUIRED): confirm the phone by SMS, or just email/phone and password. */
+export function RegisterForm({ otpRequired, trialDays }: { otpRequired: boolean; trialDays: number }) {
   const router = useRouter();
   const [error, setError] = useState<ApiError | null>(null);
   const [pending, setPending] = useState(false);
@@ -53,7 +53,7 @@ export function RegisterForm() {
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
-        <p className="mt-1 text-sm text-ink-muted">{TRIAL_DAYS}-day free trial. No payment needed to start.</p>
+        <p className="mt-1 text-sm text-ink-muted">{trialDays}-day free trial. No payment needed to start.</p>
       </div>
       {error && !error.fields ? <Alert variant="destructive">{error.message}</Alert> : null}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -68,14 +68,21 @@ export function RegisterForm() {
           {err('businessName')}
         </div>
       </div>
-      <PhoneVerification error={error} />
+      {otpRequired ? <PhoneVerification error={error} /> : null}
       <div>
         <Label htmlFor="email">
-          Email <span className="font-normal text-ink-faint">(optional)</span>
+          Email <span className="font-normal text-ink-faint">{otpRequired ? '(optional)' : '(email or phone is required)'}</span>
         </Label>
         <Input id="email" name="email" type="email" autoComplete="email" />
         {err('email')}
       </div>
+      {otpRequired ? null : (
+        <div>
+          <Label htmlFor="phone">Mobile number</Label>
+          <Input id="phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="017XXXXXXXX" />
+          {err('phone')}
+        </div>
+      )}
       <div>
         <Label htmlFor="password">Password</Label>
         <Input id="password" name="password" type="password" autoComplete="new-password" minLength={8} required />

@@ -13,6 +13,13 @@ const FIFTEEN_MIN = 15 * 60 * 1000;
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  /** What the sign-up form must ask for (OTP on or off) and the trial length. */
+  @Public()
+  @Get('signup-options')
+  signupOptions() {
+    return { data: this.auth.signupOptions() };
+  }
+
   /** Registration step 1. Per-phone limits live in the service (otp.ts); this caps one IP across many numbers. */
   @Public()
   @Post('otp')

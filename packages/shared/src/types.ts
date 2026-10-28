@@ -8,6 +8,14 @@ export interface Paginated<T> {
   meta: { page: number; perPage: number; total: number };
 }
 
+/** GET /auth/signup-options: what the sign-up form must ask for. */
+export interface SignupOptionsDto {
+  /** True: the phone is confirmed with an SMS code. False (test phase): email or phone and a password. */
+  otpRequired: boolean;
+  /** Every new business gets this many free days, in either mode. */
+  trialDays: number;
+}
+
 /** Response of POST /auth/otp. */
 export interface OtpSentDto {
   /** Seconds until the code stops working. */

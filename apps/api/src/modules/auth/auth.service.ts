@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { hash, verify } from '@node-rs/argon2';
-import { normalizePhone, trialEndsAt, type LoginInput, type Me, type OtpSentDto, type RegisterInput } from '@ph/shared';
+import {
+  normalizePhone,
+  trialEndsAt,
+  type LoginInput,
+  type Me,
+  type OtpSentDto,
+  type RegisterInput,
+  type SignupOptionsDto,
+  TRIAL_DAYS,
+} from '@ph/shared';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AuthContext } from '../../common/auth';
 import { AuthError } from '../../common/errors';
@@ -45,8 +54,13 @@ export class AuthService {
     private readonly sms: SmsSender,
   ) {}
 
-  /** Registration step 1: text a one-time code to a phone that is not registered yet. */
+  signupOptions(): SignupOptionsDto {
+    return { otpRequired: config().sms.otpRequired, trialDays: TRIAL_DAYS };
+  }
+
+  /** Registration step 1 (OTP_REQUIRED on): text a one-time code to a phone that is not registered yet. */
   async requestOtp(phone: string, now = new Date()): Promise<OtpSentDto> {
+    if (!config().sms.otpRequired) throw AuthError.otpNotEnabled();
     if (await this.repo.phoneExists(phone)) throw AuthError.phoneTaken();
 
     const wait = otpSendWait(await this.phones.sentSince(phone, new Date(now.getTime() - 3_600_000)), now);
@@ -60,29 +74,44 @@ export class AuthService {
   }
 
   /**
-   * FR-AUTH-01, step 2: the phone's code is checked, then user, business (with its trial), membership,
-   * couriers and expense categories are created in one transaction. One trial per phone number, ever.
+   * FR-AUTH-01. Every new business gets the free trial. With OTP_REQUIRED on, the phone's SMS code is
+   * checked first and the number is remembered so it never gets a second trial; with it off (test
+   * phase) an email or phone and a password are enough, and nothing is remembered because nothing
+   * was verified. Then user, business, membership, couriers and expense categories are created in
+   * one transaction.
    */
   async register(input: RegisterInput, meta: RequestMeta, now = new Date()): Promise<IssuedSession> {
     const email = input.email ?? null;
-    const { phone } = input;
+    const phone = input.phone ?? null;
+    const verify = config().sms.otpRequired;
+    if (verify && !phone) throw AuthError.phoneRequired();
     if (email && (await this.repo.emailExists(email))) throw AuthError.emailTaken();
-    if (await this.repo.phoneExists(phone)) throw AuthError.phoneTaken();
+    if (phone && (await this.repo.phoneExists(phone))) throw AuthError.phoneTaken();
 
-    const otp = await this.phones.liveOtp(phone, now, OTP.maxAttempts);
-    if (!otp) throw AuthError.codeExpired();
-    if (!sameHash(otp.codeHash, hashOtp(phone, input.code))) {
-      // Counted outside the transaction below, so a wrong guess is never rolled back.
-      const used = await this.phones.recordWrongAttempt(otp.id);
-      throw AuthError.codeWrong(Math.max(0, OTP.maxAttempts - used));
+    let otpId: string | null = null;
+    if (verify && phone) {
+      if (!input.code) throw AuthError.codeRequired();
+      const otp = await this.phones.liveOtp(phone, now, OTP.maxAttempts);
+      if (!otp) throw AuthError.codeExpired();
+      if (!sameHash(otp.codeHash, hashOtp(phone, input.code))) {
+        // Counted outside the transaction below, so a wrong guess is never rolled back.
+        const used = await this.phones.recordWrongAttempt(otp.id);
+        throw AuthError.codeWrong(Math.max(0, OTP.maxAttempts - used));
+      }
+      otpId = otp.id;
     }
 
     // Hash before opening the transaction: no slow work while rows are held (laravel-eloquent: tx-keep-transactions-short).
     const passwordHash = await hash(input.password);
     const userId = await this.repo.transaction(async (tx) => {
-      if (!(await this.phones.consumeOtp(otp.id, now, tx))) throw AuthError.codeExpired();
-      const user = await this.repo.createUser({ name: input.name, email, phone, phoneVerifiedAt: now, passwordHash }, tx);
-      const trialUsed = await this.phones.trialUsed(phone, tx);
+      if (otpId && !(await this.phones.consumeOtp(otpId, now, tx))) throw AuthError.codeExpired();
+      const verifiedPhone = otpId ? phone : null;
+      const user = await this.repo.createUser(
+        { name: input.name, email, phone, phoneVerifiedAt: verifiedPhone ? now : null, passwordHash },
+        tx,
+      );
+      // A number that already had a trial (verified earlier) gets none, in either mode.
+      const trialUsed = phone ? await this.phones.trialUsed(phone, tx) : false;
       const { businessId } = await this.business.createForOwner(
         { userId: user.id, phone },
         {
@@ -93,7 +122,8 @@ export class AuthService {
         },
         tx,
       );
-      await this.phones.claimTrial(phone, businessId, tx);
+      // Only a verified number is remembered: an unverified one could belong to someone else.
+      if (verifiedPhone) await this.phones.claimTrial(verifiedPhone, businessId, tx);
       await this.expenses.seedDefaultCategories(businessId, tx);
       return user.id;
     });

@@ -152,9 +152,13 @@ describe('free trial', () => {
 describe('registerSchema', () => {
   const base = { name: 'Nusrat', businessName: 'Shop', phone: '+880 1712-345678', password: 'secret-pass-1' };
 
-  it('needs a verified phone code and accepts Bangla digits; email is optional', () => {
+  it('accepts a phone code with Bangla digits and spaces, and rejects a short one', () => {
     expect(registerSchema.parse({ ...base, code: '১২৩ ৪৫৬' })).toMatchObject({ phone: '01712345678', code: '123456' });
     expect(registerSchema.safeParse({ ...base, code: '12345' }).success).toBe(false);
-    expect(registerSchema.safeParse({ ...base, phone: undefined, code: '123456', email: 'a@b.co' }).success).toBe(false);
+  });
+
+  it('needs an email or a phone; the code is optional here (the API decides if it is required)', () => {
+    expect(registerSchema.parse({ ...base, phone: undefined, email: 'A@B.co' })).toMatchObject({ email: 'a@b.co' });
+    expect(registerSchema.safeParse({ ...base, phone: '' }).success).toBe(false);
   });
 });

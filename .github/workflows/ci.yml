@@ -89,7 +89,8 @@ jobs:
           NODE_ENV: production
           COOKIE_SECURE: 'false'
           LOG_LEVEL: warn
-          # No SMS gateway in CI: codes are logged and fixed so the test can register.
+          # Sign-up runs without codes (OTP_REQUIRED defaults to false). If a run turns codes on, they are
+          # logged and fixed so the test can register; there is no SMS gateway in CI.
           SMS_DRIVER: log
           OTP_FIXED_CODE: '123456'
           ALLOW_INSECURE_OTP_IN_PRODUCTION: 'true'

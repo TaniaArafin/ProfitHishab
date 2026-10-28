@@ -26,6 +26,12 @@ describe('Registration codes and the 7-day free trial (e2e)', () => {
     password: 'secret-pass-1',
   });
 
+  it('tells the sign-up form that a code is required, and the trial length', async () => {
+    const res = await new Client(app).get('/auth/signup-options');
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ otpRequired: true, trialDays: 7 });
+  });
+
   describe('sending a code', () => {
     it('works without a session, returns only expiresIn and resendIn, and stores only a hash', async () => {
       const phone = nextPhone();
@@ -59,6 +65,10 @@ describe('Registration codes and the 7-day free trial (e2e)', () => {
       const client = new Client(app);
       const phone = nextPhone();
       await client.send('post', '/auth/otp', { phone });
+
+      const noPhone = await client.send('post', '/auth/register', { ...account(phone), phone: undefined, email: 'x@example.com' });
+      expect(noPhone.status).toBe(422);
+      expect(noPhone.body.error.fields.phone).toBeDefined();
 
       const missing = await client.send('post', '/auth/register', { ...account(phone), code: undefined });
       expect(missing.status).toBe(422);
