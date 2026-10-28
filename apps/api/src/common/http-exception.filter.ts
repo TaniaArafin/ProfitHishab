@@ -11,6 +11,7 @@ interface ErrorBody {
 const HTTP_CODES: Record<number, string> = {
   400: 'bad_request',
   401: 'unauthenticated',
+  402: 'payment_required',
   403: 'forbidden',
   404: 'not_found',
   409: 'conflict',

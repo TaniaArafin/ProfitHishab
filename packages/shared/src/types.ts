@@ -8,6 +8,14 @@ export interface Paginated<T> {
   meta: { page: number; perPage: number; total: number };
 }
 
+/** Response of POST /auth/otp. */
+export interface OtpSentDto {
+  /** Seconds until the code stops working. */
+  expiresIn: number;
+  /** Seconds before another code can be sent. */
+  resendIn: number;
+}
+
 export interface Me {
   user: { id: string; name: string; email: string | null; phone: string | null; locale: string };
   business: BusinessDto;
@@ -27,6 +35,8 @@ export interface BusinessDto {
   defaultCourierCost: number;
   defaultReturnCost: number;
   defaultPackagingCost: number;
+  /** ISO time the free trial ends; writes are refused after it. Null = no limit (early access). */
+  trialEndsAt: string | null;
 }
 
 export interface CourierDto {

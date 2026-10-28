@@ -1,8 +1,8 @@
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { loginSchema, registerSchema, type LoginInput, type RegisterInput } from '@ph/shared';
+import { loginSchema, otpRequestSchema, registerSchema, type LoginInput, type OtpRequestInput, type RegisterInput } from '@ph/shared';
 import type { Request, Response } from 'express';
-import { Auth, Public, SESSION_COOKIE, type AuthContext } from '../../common/auth';
+import { AllowAfterTrial, Auth, Public, SESSION_COOKIE, type AuthContext } from '../../common/auth';
 import { zod } from '../../common/zod.pipe';
 import { config } from '../../config';
 import { AuthService, type IssuedSession } from './auth.service';
@@ -12,6 +12,15 @@ const FIFTEEN_MIN = 15 * 60 * 1000;
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  /** Registration step 1. Per-phone limits live in the service (otp.ts); this caps one IP across many numbers. */
+  @Public()
+  @Post('otp')
+  @HttpCode(202)
+  @Throttle({ default: { limit: () => config().registerLimitPer15Minutes, ttl: FIFTEEN_MIN } })
+  async requestOtp(@Body(zod(otpRequestSchema)) body: OtpRequestInput) {
+    return { data: await this.auth.requestOtp(body.phone) };
+  }
 
   @Public()
   @Post('register')
@@ -33,6 +42,7 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(200)
+  @AllowAfterTrial()
   async logout(@Auth() auth: AuthContext, @Res({ passthrough: true }) res: Response) {
     await this.auth.logout(auth.sessionId);
     res.clearCookie(SESSION_COOKIE, { path: '/' });
@@ -41,6 +51,7 @@ export class AuthController {
 
   @Post('logout-all')
   @HttpCode(200)
+  @AllowAfterTrial()
   async logoutAll(@Auth() auth: AuthContext, @Res({ passthrough: true }) res: Response) {
     await this.auth.logoutEverywhere(auth.userId);
     res.clearCookie(SESSION_COOKIE, { path: '/' });

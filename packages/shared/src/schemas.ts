@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CREATABLE_ORDER_STATUSES, EXPENSE_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRODUCT_STATUSES } from './enums';
 import { isIsoDate } from './dates';
-import { normalizePhone } from './phone';
+import { normalizePhone, toAsciiDigits } from './phone';
 
 /** Integer poisha, never negative. */
 const money = z.number({ invalid_type_error: 'Enter an amount' }).int('Amount must be whole poisha').min(0, "Amount can't be negative");
@@ -27,23 +27,33 @@ const uuid = z.string().uuid();
 
 // ── Auth ───────────────────────────────────────────────────────────────
 
-export const registerSchema = z
-  .object({
-    name: z.string().trim().min(2, 'Enter your name').max(100),
-    businessName: z.string().trim().min(2, 'Enter your business name').max(120),
-    email: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .email('Enter a valid email')
-      .optional()
-      .or(z.literal('').transform(() => undefined)),
-    phone: phone.optional().or(z.literal('').transform(() => undefined)),
-    password: z.string().min(8, 'Use at least 8 characters').max(200),
-    businessType: z.string().trim().max(60).optional(),
-    city: z.string().trim().max(60).optional(),
-  })
-  .refine((d) => d.email || d.phone, { message: 'Enter an email or a phone number', path: ['email'] });
+/** Step 1 of registration: text a one-time code to this number. */
+export const otpRequestSchema = z.object({ phone });
+export type OtpRequestInput = z.infer<typeof otpRequestSchema>;
+
+/** The 6-digit SMS code; Bangla digits and spaces are accepted. */
+const otpCode = z
+  .string({ required_error: 'Enter the 6-digit code' })
+  .transform((v) => toAsciiDigits(v).replace(/\s/g, ''))
+  .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from the SMS'));
+
+/** Step 2: the phone is verified with its code; email is optional. */
+export const registerSchema = z.object({
+  name: z.string().trim().min(2, 'Enter your name').max(100),
+  businessName: z.string().trim().min(2, 'Enter your business name').max(120),
+  phone,
+  code: otpCode,
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('Enter a valid email')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  password: z.string().min(8, 'Use at least 8 characters').max(200),
+  businessType: z.string().trim().max(60).optional(),
+  city: z.string().trim().max(60).optional(),
+});
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 export const loginSchema = z.object({

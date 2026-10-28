@@ -9,6 +9,15 @@ import { PrismaService } from '../src/common/prisma.service';
 
 export const tk = (taka: number) => taka * 100;
 export const CSRF = 'test-csrf-token';
+/** OTP_FIXED_CODE from setup-env.ts: every registration code in tests. */
+export const OTP_CODE = '123456';
+
+let phoneSeq = 0;
+/** A fresh valid mobile number per call (01 7 + 8 digits). */
+export function nextPhone(): string {
+  phoneSeq += 1;
+  return `017${String(10_000_000 + phoneSeq).slice(-8)}`;
+}
 
 /** Minimal cookie-carrying client: session cookie from login plus the CSRF double-submit pair. */
 export class Client {
@@ -55,14 +64,29 @@ export async function createTestApp(): Promise<{ app: INestApplication; prisma: 
   await app.init();
   const prisma = app.get(PrismaService);
   await prisma.$executeRawUnsafe(
-    'TRUNCATE users, businesses, sessions, business_members, categories, products, product_prices, customers, couriers, orders, order_items, order_status_history, expense_categories, expenses, imports, import_rows CASCADE',
+    'TRUNCATE phone_otps, trial_claims, users, businesses, sessions, business_members, categories, products, product_prices, customers, couriers, orders, order_items, order_status_history, expense_categories, expenses, imports, import_rows CASCADE',
   );
   return { app, prisma };
 }
 
-export async function registerSeller(app: INestApplication, email: string, businessName = 'Test Shop'): Promise<Client> {
+/** Registers through both steps (code, then account). Returns the logged-in client and the phone used. */
+export async function registerSeller(
+  app: INestApplication,
+  email: string | null,
+  businessName = 'Test Shop',
+  phone = nextPhone(),
+): Promise<Client & { phone: string }> {
   const client = new Client(app);
-  const res = await client.send('post', '/auth/register', { name: 'Nusrat', businessName, email, password: 'secret-pass-1' });
+  const otp = await client.send('post', '/auth/otp', { phone });
+  if (otp.status !== 202) throw new Error(`otp failed: ${otp.status} ${JSON.stringify(otp.body)}`);
+  const res = await client.send('post', '/auth/register', {
+    name: 'Nusrat',
+    businessName,
+    phone,
+    code: OTP_CODE,
+    ...(email ? { email } : {}),
+    password: 'secret-pass-1',
+  });
   if (res.status !== 201) throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);
-  return client;
+  return Object.assign(client, { phone });
 }

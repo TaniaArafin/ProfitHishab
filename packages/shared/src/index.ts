@@ -5,4 +5,5 @@ export * from './dates';
 export * from './order-status';
 export * from './order-totals';
 export * from './schemas';
+export * from './trial';
 export * from './types';

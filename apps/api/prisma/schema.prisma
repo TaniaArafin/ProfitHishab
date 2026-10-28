@@ -1,4 +1,3 @@
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,16 +8,18 @@ datasource db {
 }
 
 model User {
-  id           String           @id @default(uuid(7)) @db.Uuid
-  name         String
-  email        String?          @unique
-  phone        String?          @unique
-  passwordHash String
-  locale       String           @default("bn")
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  sessions     Session[]
-  memberships  BusinessMember[]
+  id              String           @id @default(uuid(7)) @db.Uuid
+  name            String
+  email           String?          @unique
+  phone           String?          @unique
+  /// Set when the phone was confirmed with an SMS code at registration. Null for early-access accounts.
+  phoneVerifiedAt DateTime?
+  passwordHash    String
+  locale          String           @default("bn")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  sessions        Session[]
+  memberships     BusinessMember[]
 
   @@map("users")
 }
@@ -56,6 +57,8 @@ model Business {
   defaultReturnCost    Int               @default(0)
   defaultPackagingCost Int               @default(0)
   nextOrderNo          Int               @default(1001)
+  /// End of the free trial; writes are refused after it. Null = no limit (early-access sellers).
+  trialEndsAt          DateTime?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   members              BusinessMember[]
@@ -67,6 +70,7 @@ model Business {
   expenseCategories    ExpenseCategory[]
   expenses             Expense[]
   imports              Import[]
+  trialClaims          TrialClaim[]
 
   @@map("businesses")
 }
@@ -99,20 +103,20 @@ model Category {
 }
 
 model Product {
-  id           String      @id @default(uuid(7)) @db.Uuid
-  businessId   String      @db.Uuid
-  categoryId   String?     @db.Uuid
+  id           String         @id @default(uuid(7)) @db.Uuid
+  businessId   String         @db.Uuid
+  categoryId   String?        @db.Uuid
   name         String
   sku          String
   sellingPrice Int
   costPrice    Int
-  stock        Int         @default(0)
-  status       String      @default("active")
-  importId     String?     @db.Uuid
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  business     Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category     Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stock        Int            @default(0)
+  status       String         @default("active")
+  importId     String?        @db.Uuid
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category     Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   orderItems   OrderItem[]
   prices       ProductPrice[]
 
@@ -323,4 +327,29 @@ model ImportRow {
 
   @@index([importId, status])
   @@map("import_rows")
+}
+
+/// One-time SMS codes that prove a seller owns a phone number before registering.
+model PhoneOtp {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  phone      String
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@map("phone_otps")
+}
+
+/// A verified phone number that has used its free trial. Kept when the business is deleted,
+/// so deleting an account and registering again never starts a second trial.
+model TrialClaim {
+  phone      String    @id
+  businessId String?   @db.Uuid
+  claimedAt  DateTime  @default(now())
+  business   Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@map("trial_claims")
 }

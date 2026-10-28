@@ -22,7 +22,7 @@ export class AuthRepository {
     return (await this.prisma.user.findFirst({ where: { phone }, select: { id: true } })) !== null;
   }
 
-  createUser(data: { name: string; email: string | null; phone: string | null; passwordHash: string }, db: Tx) {
+  createUser(data: { name: string; email: string | null; phone: string; phoneVerifiedAt: Date; passwordHash: string }, db: Tx) {
     return db.user.create({ data });
   }
 
@@ -43,7 +43,7 @@ export class AuthRepository {
             memberships: {
               take: 1,
               orderBy: { createdAt: 'asc' },
-              select: { business: { select: { id: true, timezone: true } } },
+              select: { business: { select: { id: true, timezone: true, trialEndsAt: true } } },
             },
           },
         },

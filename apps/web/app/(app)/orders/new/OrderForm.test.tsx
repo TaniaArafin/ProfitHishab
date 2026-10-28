@@ -32,6 +32,7 @@ const business: BusinessDto = {
   defaultCourierCost: 0,
   defaultReturnCost: 0,
   defaultPackagingCost: 0,
+  trialEndsAt: null,
 };
 
 const api = vi.fn<(method: string, path: string, body?: unknown) => Promise<unknown>>();

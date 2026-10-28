@@ -29,6 +29,7 @@ describe('Engineering rules (e2e)', () => {
       const seller = await registerSeller(app, 'shape@example.com');
       const res = await seller.get('/auth/me');
       expect(Object.keys(res.body.data.user).sort()).toEqual(['email', 'id', 'locale', 'name', 'phone']);
+      expect(Object.keys(res.body.data.business)).toContain('trialEndsAt');
       expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|tokenHash/);
     });
   });

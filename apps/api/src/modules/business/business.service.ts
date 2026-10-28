@@ -29,11 +29,18 @@ export class BusinessService {
   /** Called by Auth inside the registration transaction. */
   async createForOwner(
     owner: { userId: string; phone: string | null },
-    details: { name: string; businessType: string | null; city: string | null },
+    details: { name: string; businessType: string | null; city: string | null; trialEndsAt: Date | null },
     db: Tx,
   ): Promise<{ businessId: string }> {
     const business = await this.repo.createForOwner(
-      { ownerId: owner.userId, name: details.name, businessType: details.businessType, city: details.city, phone: owner.phone },
+      {
+        ownerId: owner.userId,
+        name: details.name,
+        businessType: details.businessType,
+        city: details.city,
+        phone: owner.phone,
+        trialEndsAt: details.trialEndsAt,
+      },
       DEFAULT_COURIERS,
       db,
     );

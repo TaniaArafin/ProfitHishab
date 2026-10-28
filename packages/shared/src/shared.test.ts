@@ -9,7 +9,11 @@ import {
   percent,
   previousPeriod,
   resolvePeriod,
+  registerSchema,
   toPoisha,
+  trialDaysLeft,
+  trialEndsAt,
+  isTrialOver,
 } from './index';
 
 describe('normalizePhone', () => {
@@ -120,5 +124,37 @@ describe('orderTotals (FR-ORD-05)', () => {
     expect(orderTotals([{ quantity: 1, unitPrice: 100, unitCost: 50 }], { discount: 101, deliveryCharge: 0 }).discountExceedsSubtotal).toBe(
       true,
     );
+  });
+});
+
+describe('free trial', () => {
+  const now = new Date('2026-10-27T10:00:00Z');
+
+  it('lasts 7 days for a new phone and none for a phone that already used it', () => {
+    expect(trialEndsAt(now, false).toISOString()).toBe('2026-11-03T10:00:00.000Z');
+    expect(trialEndsAt(now, true).toISOString()).toBe(now.toISOString());
+  });
+
+  it('is over at the end time, not before, and never for early-access sellers', () => {
+    expect(isTrialOver('2026-10-27T10:00:01Z', now)).toBe(false);
+    expect(isTrialOver('2026-10-27T10:00:00Z', now)).toBe(true);
+    expect(isTrialOver(null, now)).toBe(false);
+  });
+
+  it('counts days left rounded up, 0 when over, null when unlimited', () => {
+    expect(trialDaysLeft('2026-11-03T10:00:00Z', now)).toBe(7);
+    expect(trialDaysLeft('2026-10-27T10:01:00Z', now)).toBe(1);
+    expect(trialDaysLeft('2026-10-26T10:00:00Z', now)).toBe(0);
+    expect(trialDaysLeft(null, now)).toBeNull();
+  });
+});
+
+describe('registerSchema', () => {
+  const base = { name: 'Nusrat', businessName: 'Shop', phone: '+880 1712-345678', password: 'secret-pass-1' };
+
+  it('needs a verified phone code and accepts Bangla digits; email is optional', () => {
+    expect(registerSchema.parse({ ...base, code: '১২৩ ৪৫৬' })).toMatchObject({ phone: '01712345678', code: '123456' });
+    expect(registerSchema.safeParse({ ...base, code: '12345' }).success).toBe(false);
+    expect(registerSchema.safeParse({ ...base, phone: undefined, code: '123456', email: 'a@b.co' }).success).toBe(false);
   });
 });

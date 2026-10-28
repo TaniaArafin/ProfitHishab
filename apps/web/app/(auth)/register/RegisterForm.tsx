@@ -10,6 +10,8 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { TRIAL_DAYS } from '@ph/shared';
+import { PhoneVerification } from './PhoneVerification';
 
 const BUSINESS_TYPES = ['Clothing & fashion', 'Cosmetics & beauty', 'Electronics & gadgets', 'Food & grocery', 'Home & lifestyle', 'Other'];
 
@@ -25,8 +27,9 @@ export function RegisterForm() {
     const res = await api('POST', '/auth/register', {
       name: f.get('name'),
       businessName: f.get('businessName'),
-      email: f.get('email'),
       phone: f.get('phone'),
+      code: f.get('code') ?? '',
+      email: f.get('email'),
       password: f.get('password'),
       businessType: f.get('businessType') || undefined,
       city: f.get('city') || undefined,
@@ -50,7 +53,7 @@ export function RegisterForm() {
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
-        <p className="mt-1 text-sm text-ink-muted">Free while we are in early access. Currency is BDT.</p>
+        <p className="mt-1 text-sm text-ink-muted">{TRIAL_DAYS}-day free trial. No payment needed to start.</p>
       </div>
       {error && !error.fields ? <Alert variant="destructive">{error.message}</Alert> : null}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -65,17 +68,13 @@ export function RegisterForm() {
           {err('businessName')}
         </div>
       </div>
+      <PhoneVerification error={error} />
       <div>
-        <Label htmlFor="email">Email</Label>
+        <Label htmlFor="email">
+          Email <span className="font-normal text-ink-faint">(optional)</span>
+        </Label>
         <Input id="email" name="email" type="email" autoComplete="email" />
         {err('email')}
-      </div>
-      <div>
-        <Label htmlFor="phone">
-          Phone <span className="font-normal text-ink-faint">(email or phone is required)</span>
-        </Label>
-        <Input id="phone" name="phone" type="tel" autoComplete="tel" placeholder="017XXXXXXXX" />
-        {err('phone')}
       </div>
       <div>
         <Label htmlFor="password">Password</Label>

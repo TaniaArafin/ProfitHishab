@@ -6,12 +6,19 @@ import { expect, test } from '@playwright/test';
  */
 test('a new seller sees their real profit after their first delivered order', async ({ page }, testInfo) => {
   const email = `e2e-${testInfo.project.name}-${Date.now()}@example.com`;
+  // A fresh number per run and project (017… desktop, 018… phone), so each run gets its own free trial.
+  const phone = `01${testInfo.project.name === 'phone' ? 8 : 7}${String(Date.now()).slice(-8)}`;
+  // The API's OTP_FIXED_CODE (dev .env and CI): the code is not texted in tests.
+  const code = process.env.E2E_OTP_CODE ?? '123456';
 
   await test.step('register', async () => {
     await page.goto('/register');
     await page.getByLabel('Your name').fill('Nusrat Jahan');
     await page.getByLabel('Business name').fill('E2E Fashion');
-    await page.getByLabel('Email', { exact: true }).fill(email);
+    await page.getByLabel('Mobile number').fill(phone);
+    await page.getByRole('button', { name: 'Send code' }).click();
+    await page.getByLabel('SMS code').fill(code);
+    await page.getByLabel(/^Email/).fill(email);
     await page.getByLabel('Password', { exact: true }).fill('secret-pass-1');
     await page.getByRole('button', { name: 'Create account' }).click();
     await expect(page.getByRole('heading', { name: /real profit/i })).toBeVisible();

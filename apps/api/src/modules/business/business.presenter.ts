@@ -16,6 +16,7 @@ export function toBusinessDto(b: Business): BusinessDto {
     defaultCourierCost: b.defaultCourierCost,
     defaultReturnCost: b.defaultReturnCost,
     defaultPackagingCost: b.defaultPackagingCost,
+    trialEndsAt: b.trialEndsAt?.toISOString() ?? null,
   };
 }
 

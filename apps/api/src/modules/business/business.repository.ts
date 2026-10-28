@@ -8,7 +8,14 @@ export class BusinessRepository {
 
   /** A new business with its owner membership and the default couriers (FR-AUTH-01, FR-BIZ-04). */
   async createForOwner(
-    data: { ownerId: string; name: string; businessType: string | null; city: string | null; phone: string | null },
+    data: {
+      ownerId: string;
+      name: string;
+      businessType: string | null;
+      city: string | null;
+      phone: string | null;
+      trialEndsAt: Date | null;
+    },
     courierNames: readonly string[],
     db: Tx,
   ) {

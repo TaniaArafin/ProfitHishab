@@ -6,6 +6,9 @@ process.env.RATE_LIMIT_PER_MINUTE = '10000';
 process.env.REGISTER_LIMIT_PER_15_MINUTES = '1000';
 process.env.NODE_ENV = 'test';
 process.env.LOG_LEVEL = 'silent';
+// Registration codes: written to the (silent) log, and always this value, so tests can register.
+process.env.SMS_DRIVER = 'log';
+process.env.OTP_FIXED_CODE = '123456';
 // Product search: Postgres by default; set TEST_TYPESENSE_URL to run against Typesense (own collection).
 // Set explicitly: Prisma loads apps/api/.env into process.env, which would otherwise switch Typesense on.
 process.env.SEARCH_DRIVER = process.env.TEST_TYPESENSE_URL ? 'typesense' : 'postgres';

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { TRIAL_DAYS } from '@ph/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
@@ -44,7 +45,7 @@ export default function Landing() {
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <Button asChild size="lg" className="w-full text-base sm:w-auto">
-              <Link href="/register">Start free</Link>
+              <Link href="/register">Start {TRIAL_DAYS}-day free trial</Link>
             </Button>
             <span className="text-sm text-ink-muted">Import your order Excel and see your profit in minutes.</span>
           </div>

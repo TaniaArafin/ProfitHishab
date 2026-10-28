@@ -89,6 +89,10 @@ jobs:
           NODE_ENV: production
           COOKIE_SECURE: 'false'
           LOG_LEVEL: warn
+          # No SMS gateway in CI: codes are logged and fixed so the test can register.
+          SMS_DRIVER: log
+          OTP_FIXED_CODE: '123456'
+          ALLOW_INSECURE_OTP_IN_PRODUCTION: 'true'
         run: npm run test:e2e
 
       - name: Upload Playwright report

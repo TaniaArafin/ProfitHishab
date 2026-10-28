@@ -11,6 +11,8 @@ export interface AuthContext {
   businessId: string;
   sessionId: string;
   timezone: string;
+  /** Null = no time limit (early access). After it, AuthGuard refuses writes. */
+  trialEndsAt: Date | null;
 }
 
 export interface AuthedRequest extends Request {
@@ -19,6 +21,10 @@ export interface AuthedRequest extends Request {
 
 export const IS_PUBLIC = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC, true);
+
+/** A write a seller may still make after the trial ends (logging out). Everything else is read-only then. */
+export const ALLOW_AFTER_TRIAL = 'allowAfterTrial';
+export const AllowAfterTrial = () => SetMetadata(ALLOW_AFTER_TRIAL, true);
 
 export const Auth = createParamDecorator((_: unknown, ctx: ExecutionContext): AuthContext => {
   const req = ctx.switchToHttp().getRequest<AuthedRequest>();

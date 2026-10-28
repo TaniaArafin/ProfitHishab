@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import type { INestApplication } from '@nestjs/common';
-import { Client, createTestApp, tk } from './helpers';
+import { Client, createTestApp, nextPhone, OTP_CODE, registerSeller as register, tk } from './helpers';
 
 describe('ProfitHishab API (e2e)', () => {
   let app: INestApplication;
@@ -13,12 +13,7 @@ describe('ProfitHishab API (e2e)', () => {
     await app.close();
   });
 
-  async function registerSeller(email: string, businessName: string) {
-    const client = new Client(app);
-    const res = await client.send('post', '/auth/register', { name: 'Nusrat', businessName, email, password: 'secret-pass-1' });
-    expect(res.status).toBe(201);
-    return client;
-  }
+  const registerSeller = (email: string, businessName: string) => register(app, email, businessName);
 
   it('registers a seller and seeds couriers and expense categories', async () => {
     const seller = await registerSeller('nusrat@example.com', 'Nusrat Fashion');
@@ -34,9 +29,13 @@ describe('ProfitHishab API (e2e)', () => {
 
   it('rejects a duplicate email, a wrong password and an anonymous request', async () => {
     const client = new Client(app);
+    const phone = nextPhone();
+    await client.send('post', '/auth/otp', { phone });
     const dup = await client.send('post', '/auth/register', {
       name: 'Xavier',
       businessName: 'Other',
+      phone,
+      code: OTP_CODE,
       email: 'nusrat@example.com',
       password: 'secret-pass-1',
     });

@@ -84,6 +84,12 @@ Precedence: the user's instruction in the current turn → this file → the ski
 - When Typesense is down or `SEARCH_DRIVER=postgres`, `ids()` returns null and the list falls back to `ILIKE`. Tests use Postgres unless `TEST_TYPESENSE_URL` is set (CI sets it).
 - Use `127.0.0.1`, not `localhost`, in `TYPESENSE_URL`: Node resolves `localhost` to IPv6 first and Docker may only forward IPv4.
 
+**Registration and the free trial**
+- Registration is two steps: `POST /auth/otp` texts a 6-digit code (stored hashed, bound to the phone, 10 min, 5 tries, one resend a minute, 5 an hour; rules in `auth/otp.ts`), then `POST /auth/register` needs `phone` + `code`. Email is optional. The phone is the identity for the trial.
+- A new business gets `trialEndsAt` = now + `TRIAL_DAYS` (7, `packages/shared/src/trial.ts`). `trial_claims` keeps every phone that has had a trial, even after its business is deleted, so a returning number gets none. `trialEndsAt` NULL means no limit (early-access sellers).
+- After the trial `AuthGuard` refuses every write with 402 `trial_ended`; reads still work. Mark a write that must keep working with `@AllowAfterTrial()` (only logout today).
+- SMS goes through `SmsSender`, chosen by `SMS_DRIVER`. Only `log` exists (writes the code to the log); `OTP_FIXED_CODE` makes codes predictable for dev and e2e. Production refuses both unless `ALLOW_INSECURE_OTP_IN_PRODUCTION=true`, which only CI's e2e run sets.
+
 **Idempotency** [controller-idempotency-key-on-unsafe-writes]
 - `POST /orders` requires an `Idempotency-Key` header (8–100 chars). Same key + same body replays the original order; same key + different body is 409. Keys are scoped per business. Add the same treatment to any new create endpoint a phone may retry.
 
@@ -176,6 +182,7 @@ Run: `npm test` from the root. All of it must pass before finishing a change.
 - The CI workflow has not run on GitHub yet; check its first run.
 - A search index rebuild drops and refills the collection; searches fall back to Postgres meanwhile. Use a Typesense alias swap for zero-downtime rebuilds once catalogues are large.
 - A price change always applies from today; there is no way yet to enter a price that changed on a past date.
+- No SMS gateway: production cannot start until a real `SmsSender` is added (e.g. a Bangladeshi bulk-SMS provider). No payment yet either: an ended trial stays read-only until billing exists, and the web app has no trial banner yet (`trialDaysLeft` in shared is ready for it).
 
 ## Working agreements
 
