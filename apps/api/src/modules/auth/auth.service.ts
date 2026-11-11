@@ -12,6 +12,7 @@ import {
 } from '@ph/shared';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AuthContext } from '../../common/auth';
+import type { Tx } from '../../common/prisma.service';
 import { AuthError } from '../../common/errors';
 import { config } from '../../config';
 import { BusinessService } from '../business/business.service';
@@ -144,6 +145,7 @@ export class AuthService {
       throw AuthError.wrongCredentials();
     }
     this.attempts.recordSuccess(identifier);
+    if (await this.repo.isBlocked(user.id)) throw AuthError.accountBlocked();
     return this.issueSession(user.id, meta);
   }
 
@@ -179,7 +181,23 @@ export class AuthService {
       sessionId: session.id,
       timezone: business.timezone,
       trialEndsAt: business.trialEndsAt,
+      blockedAt: business.blockedAt,
+      isPlatformAdmin: session.user.isPlatformAdmin,
     };
+  }
+
+  /** Platform admin: logs out everyone in a blocked business, inside the admin's transaction. */
+  async revokeBusinessSessions(businessId: string, db: Tx): Promise<void> {
+    await this.repo.revokeBusinessSessions(businessId, db);
+  }
+
+  /**
+   * `npm run admin:grant`: makes the user with this email or phone a platform admin (or removes it).
+   * Returns their user id, or null when no user has that identifier.
+   */
+  async setPlatformAdmin(identifier: string, on: boolean): Promise<{ id: string; name: string } | null> {
+    const phone = normalizePhone(identifier);
+    return this.repo.setPlatformAdmin(phone ? { phone } : { email: identifier.trim().toLowerCase() }, on);
   }
 
   private async issueSession(userId: string, meta: RequestMeta): Promise<IssuedSession> {

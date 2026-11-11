@@ -46,8 +46,9 @@ Precedence: the user's instruction in the current turn → this file → the ski
 
 **Module boundaries** [domain-no-cross-domain-models]
 - A module never imports another module's repository. It calls the other module's exported service, which returns plain DTOs, never Prisma models.
-- Module `exports` lists only the service. Current public surfaces: `BusinessService.orderDefaults / reserveOrderNo / assertCourierBelongs / createForOwner / profile`, `ProductsService.productsForOrder / moveStock`, `CustomersService.findOrCreateForOrder`, `ExpensesService.seedDefaultCategories`.
+- Module `exports` lists only services. Current public surfaces: `BusinessService.orderDefaults / reserveOrderNo / assertCourierBelongs / createForOwner / profile / lockAccess / setAccessEnd / setBlocked`, `ProductsService.productsForOrder / moveStock`, `CustomersService.findOrCreateForOrder`, `ExpensesService.seedDefaultCategories`, `AuthService.revokeBusinessSessions / setPlatformAdmin`, `PasswordResetService.createLink`, `AdminService.grant` (for the script).
 - Cross-module writes in one transaction pass the `Tx` handle down.
+- Deliberate exception: `AdminRepository` reads every business (businesses, users, sessions, orders, products) with SQL for the platform admin panel; `AdminGuard` is its scope instead of `businessId`. It writes only `admin_actions`; access and blocking go through `BusinessService` and `AuthService`.
 - Deliberate exception: `ProfitRepository` and the customer stats query read `orders`, `order_items`, `products` and `expenses` with SQL. Profit and customer stats are read-only reporting over the shared schema; they never write another module's tables.
 
 **Tenancy and authorization** [authz-never-trust-request-ids]
@@ -94,6 +95,12 @@ Precedence: the user's instruction in the current turn → this file → the ski
 **Forgot password** (FR-AUTH-06)
 - `POST /auth/password/forgot {email}` always answers 202 `{ ok: true }` (FR-AUTH-03); past 3 links an hour per account it quietly sends nothing. The email is sent without awaiting, so a real account answers no slower than an unknown one. `POST /auth/password/reset {token, password}` sets the password, closes every link of the user and revokes all sessions in one transaction, then lifts the account's login lock-out. Links: 32 random bytes, SHA-256 stored, 60 minutes, single use, only the newest works (`password-reset.service.ts`).
 - Email goes through `Mailer`, chosen by `MAIL_DRIVER`: `log` (dev, tests) or `smtp` (any SMTP service; `SMTP_*`, `MAIL_FROM`). Links point at `WEB_ORIGIN`. Production refuses `log` unless `ALLOW_LOG_MAIL_IN_PRODUCTION=true` (CI's e2e only). Accounts with only a phone cannot reset by email yet (FR-AUTH-07, SMS reset, is not built).
+
+**Platform admin** (`modules/admin`, web `/admin`)
+- `users.isPlatformAdmin` is set only by `npm run admin:grant -w @ph/api -- <email|phone> [--revoke]` (built API), never by the API. Granting also makes the admin's own business unlimited. The flag is read on every request, so a change applies at once.
+- `AdminGuard` on `AdminController`: anonymous 401 (global guard), any non-admin 404 so the panel is not revealed. Admin routes are `@AllowAfterTrial()`.
+- Actions: list/search/filter businesses by access status (`trial | ended | unlimited | blocked`, derived by `accessStatus()`, never stored); change access (`newAccessEnd()`: add days to the later of now and the current end, until a date (end of day, Dhaka), unlimited, end now); block with a reason (revokes every session; `AuthGuard` and login refuse a blocked business with 403 `account_blocked`; an admin can't block their own business); unblock; create a password link returned to the admin (phone-only owners). Each change and its `admin_actions` row are one transaction, with the business row locked.
+- Manual payment until billing exists: "Add days" on the business.
 
 **Idempotency** [controller-idempotency-key-on-unsafe-writes]
 - `POST /orders` requires an `Idempotency-Key` header (8–100 chars). Same key + same body replays the original order; same key + different body is 409. Keys are scoped per business. Add the same treatment to any new create endpoint a phone may retry.

@@ -28,6 +28,7 @@ export class AuthGuard implements CanActivate {
 
     if (isPublic) return true;
     if (!resolved) throw AuthError.unauthenticated();
+    if (resolved.blockedAt) throw AuthError.accountBlocked();
 
     const allowed = this.reflector.getAllAndOverride<boolean>(ALLOW_AFTER_TRIAL, [context.getHandler(), context.getClass()]);
     if (!READS.has(req.method) && !allowed && isTrialOver(resolved.trialEndsAt, new Date())) throw TrialError.ended();

@@ -85,6 +85,11 @@ export class AuthError extends AppError {
     return new AuthError(422, 'reset_link_invalid', message, field('token', message));
   }
 
+  /** 403: a platform admin blocked the business. */
+  static accountBlocked(): AuthError {
+    return new AuthError(403, 'account_blocked', 'This account is blocked. Contact ProfitHishab support.');
+  }
+
   static tooManyFailedLogins(minutes: number): AuthError {
     return new AuthError(429, 'rate_limited', `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
   }

@@ -29,6 +29,8 @@ Sign-up has two modes, set by `OTP_REQUIRED` in `apps/api/.env`. `false` (defaul
 
 Forgot password emails a reset link. In development `MAIL_DRIVER=log` prints the email (with the link) in the API terminal; production needs `MAIL_DRIVER=smtp` and the `SMTP_*` settings from `apps/api/.env.example`.
 
+**Admin panel** (`/admin`, ProfitHishab staff only): register an account normally, then `npm run build -w @ph/api && npm run admin:grant -w @ph/api -- <your email or phone>`. An "Admin" item appears in the menu. `--revoke` removes it.
+
 If the API fails with Prisma `P1001` while the `db` container is healthy (OrbStack sometimes leaves the port unattached after `db:up`), run `docker compose restart db`.
 
 ## Checks

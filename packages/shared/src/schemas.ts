@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CREATABLE_ORDER_STATUSES, EXPENSE_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRODUCT_STATUSES } from './enums';
+import { ACCESS_STATUSES, CREATABLE_ORDER_STATUSES, EXPENSE_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRODUCT_STATUSES } from './enums';
 import { isIsoDate } from './dates';
 import { normalizePhone, toAsciiDigits } from './phone';
 
@@ -247,3 +247,33 @@ export const periodQuerySchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
 });
+
+// ── Platform admin ─────────────────────────────────────────────────────
+
+export const adminBusinessListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(25),
+  /** Business name, owner name, email or phone. */
+  q: z.string().trim().max(100).optional(),
+  status: z.enum(ACCESS_STATUSES).optional(),
+});
+export type AdminBusinessListQuery = z.infer<typeof adminBusinessListQuerySchema>;
+
+export const adminAccessSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('extend'),
+    days: z.coerce.number().int('Whole days only').min(1, 'At least 1 day').max(365, 'At most 365 days'),
+  }),
+  z.object({
+    mode: z.literal('until'),
+    date: isoDate.refine((d) => d > '2000-01-01', 'Use a date like 2026-12-31'),
+  }),
+  z.object({ mode: z.literal('unlimited') }),
+  z.object({ mode: z.literal('end') }),
+]);
+export type AdminAccessInput = z.infer<typeof adminAccessSchema>;
+
+export const adminBlockSchema = z.object({
+  reason: z.string().trim().min(3, 'Say why, so other admins know').max(300),
+});
+export type AdminBlockInput = z.infer<typeof adminBlockSchema>;

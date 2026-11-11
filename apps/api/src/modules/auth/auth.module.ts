@@ -16,6 +16,8 @@ import { ExpensesModule } from '../expenses/expenses.module';
 @Module({
   imports: [BusinessModule, ExpensesModule],
   controllers: [AuthController],
+  // For the admin module: session revocation, the admin flag and admin-made reset links.
+  exports: [AuthService, PasswordResetService],
   providers: [
     AuthRepository,
     AuthService,

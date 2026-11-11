@@ -7,6 +7,7 @@
     "dev": "nest start --watch --preserveWatchOutput",
     "start": "node dist/main.js",
     "search:rebuild": "node dist/search-rebuild.js",
+    "admin:grant": "node dist/admin-grant.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",

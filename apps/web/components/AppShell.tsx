@@ -9,6 +9,7 @@ import {
   PieChart,
   Plus,
   Settings,
+  ShieldCheck,
   ShoppingBag,
   Users,
   Wallet,
@@ -49,7 +50,8 @@ const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
   { title: 'Account', items: [{ href: '/settings', label: 'Settings', icon: Settings }] },
 ];
 
-const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
+/** Only for platform admins (ProfitHishab staff). The API refuses /admin to everyone else anyway. */
+const ADMIN_GROUP = { title: 'ProfitHishab', items: [{ href: '/admin', label: 'Admin', icon: ShieldCheck }] };
 
 /** Phone: bottom tabs with a raised "+" for a new order. */
 const TABS: NavItem[] = [
@@ -67,7 +69,19 @@ function initials(name: string): string {
     .join('');
 }
 
-export function AppShell({ businessName, userName, children }: { businessName: string; userName: string; children: ReactNode }) {
+export function AppShell({
+  businessName,
+  userName,
+  isAdmin = false,
+  children,
+}: {
+  businessName: string;
+  userName: string;
+  isAdmin?: boolean;
+  children: ReactNode;
+}) {
+  const navGroups = isAdmin ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS;
+  const allItems = navGroups.flatMap((g) => g.items);
   const router = useRouter();
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -121,7 +135,7 @@ export function AppShell({ businessName, userName, children }: { businessName: s
         </div>
 
         <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3" aria-label="Main">
-          {NAV_GROUPS.map((group) => (
+          {navGroups.map((group) => (
             <div key={group.title}>
               <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink/35">{group.title}</div>
               <ul className="flex flex-col gap-0.5">
@@ -228,25 +242,27 @@ export function AppShell({ businessName, userName, children }: { businessName: s
                     <SheetDescription className="truncate">{businessName}</SheetDescription>
                   </SheetHeader>
                   <ul className="grid grid-cols-2 gap-1">
-                    {ALL_ITEMS.filter((n) => !TABS.some((t) => t.href === n.href)).map(({ href, label, icon: Icon }) => (
-                      <li key={href}>
-                        <Link
-                          href={href}
-                          onClick={(e) => {
-                            setMoreOpen(false);
-                            navigate(href)(e);
-                          }}
-                          aria-current={isCurrent(href) ? 'page' : undefined}
-                          className={clsx(
-                            'flex min-h-12 items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-medium',
-                            isActive(href) ? 'bg-brand-soft text-ink' : 'hover:bg-paper',
-                          )}
-                        >
-                          <Icon className="h-[18px] w-[18px] shrink-0" />
-                          {label}
-                        </Link>
-                      </li>
-                    ))}
+                    {allItems
+                      .filter((n) => !TABS.some((t) => t.href === n.href))
+                      .map(({ href, label, icon: Icon }) => (
+                        <li key={href}>
+                          <Link
+                            href={href}
+                            onClick={(e) => {
+                              setMoreOpen(false);
+                              navigate(href)(e);
+                            }}
+                            aria-current={isCurrent(href) ? 'page' : undefined}
+                            className={clsx(
+                              'flex min-h-12 items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-medium',
+                              isActive(href) ? 'bg-brand-soft text-ink' : 'hover:bg-paper',
+                            )}
+                          >
+                            <Icon className="h-[18px] w-[18px] shrink-0" />
+                            {label}
+                          </Link>
+                        </li>
+                      ))}
                     <li>
                       <Button
                         variant="ghost"

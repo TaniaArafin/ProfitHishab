@@ -49,3 +49,18 @@ export const DEFAULT_EXPENSE_CATEGORIES: ReadonlyArray<{ name: string; kind: Exp
 
 /** Seeded for every new business (FR-BIZ-04). */
 export const DEFAULT_COURIERS = ['Pathao', 'Steadfast', 'RedX', 'Other'] as const;
+
+/** What a platform admin did to a business (admin_actions.action CHECK constraint). */
+export const ADMIN_ACTIONS = ['set_access', 'block', 'unblock', 'reset_link'] as const;
+export type AdminAction = (typeof ADMIN_ACTIONS)[number];
+
+/** A business's access, derived from trialEndsAt and blockedAt (never stored). */
+export const ACCESS_STATUSES = ['trial', 'ended', 'unlimited', 'blocked'] as const;
+export type AccessStatus = (typeof ACCESS_STATUSES)[number];
+
+export const ACCESS_STATUS_LABELS: Record<AccessStatus, string> = {
+  trial: 'On trial',
+  ended: 'Trial ended',
+  unlimited: 'Unlimited',
+  blocked: 'Blocked',
+};

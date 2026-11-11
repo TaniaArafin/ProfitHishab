@@ -1,4 +1,4 @@
-import type { ExpenseKind, OrderStatus, PaymentMethod, ProductStatus } from './enums';
+import type { AccessStatus, AdminAction, ExpenseKind, OrderStatus, PaymentMethod, ProductStatus } from './enums';
 import type { Period } from './dates';
 
 /** Response shapes shared by the API and the web app. Money is integer poisha. */
@@ -25,7 +25,7 @@ export interface OtpSentDto {
 }
 
 export interface Me {
-  user: { id: string; name: string; email: string | null; phone: string | null; locale: string };
+  user: { id: string; name: string; email: string | null; phone: string | null; locale: string; isPlatformAdmin: boolean };
   business: BusinessDto;
 }
 
@@ -241,4 +241,58 @@ export interface InsightDto {
   severity: InsightSeverity;
   message: string;
   href: string | null;
+}
+
+// ── Platform admin ─────────────────────────────────────────────────────
+
+export interface AdminOwnerDto {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  /** True when the phone was confirmed with an SMS code. */
+  phoneVerified: boolean;
+}
+
+/** One row of GET /admin/businesses. */
+export interface AdminBusinessListItemDto {
+  id: string;
+  name: string;
+  createdAt: string;
+  owner: AdminOwnerDto;
+  status: AccessStatus;
+  /** ISO end of access; null = unlimited. */
+  trialEndsAt: string | null;
+  /** Whole days of access left; null when unlimited. */
+  daysLeft: number | null;
+  /** Orders ever created, cancelled included. */
+  orderCount: number;
+  /** Last time anyone in the business used the app (sessions are refreshed at most daily). */
+  lastActiveAt: string | null;
+}
+
+export interface AdminActionDto {
+  id: string;
+  action: AdminAction;
+  details: Record<string, unknown>;
+  /** Null when that admin's account was deleted. */
+  adminName: string | null;
+  createdAt: string;
+}
+
+/** GET /admin/businesses/:id */
+export interface AdminBusinessDto extends AdminBusinessListItemDto {
+  city: string | null;
+  businessType: string | null;
+  blockedAt: string | null;
+  blockedReason: string | null;
+  productCount: number;
+  /** Newest first, at most 50. */
+  actions: AdminActionDto[];
+}
+
+/** POST /admin/businesses/:id/reset-link: a password link for the admin to send to the owner. */
+export interface AdminResetLinkDto {
+  url: string;
+  expiresAt: string;
 }

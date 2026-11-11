@@ -83,6 +83,21 @@ export class BusinessService {
     if (!(await this.repo.findCourier(businessId, courierId, db))) throw BusinessError.courierNotFound();
   }
 
+  /** Platform admin: current access fields, locked for the admin's transaction. Null when no such business. */
+  lockAccess(businessId: string, db: Tx) {
+    return this.repo.lockAccess(businessId, db);
+  }
+
+  /** Platform admin: new end of access (null = unlimited). */
+  async setAccessEnd(businessId: string, trialEndsAt: Date | null, db: Tx): Promise<void> {
+    await this.repo.setAccess(businessId, { trialEndsAt }, db);
+  }
+
+  /** Platform admin: block (with a reason) or unblock (null). */
+  async setBlocked(businessId: string, block: { at: Date; reason: string } | null, db: Tx): Promise<void> {
+    await this.repo.setAccess(businessId, { blockedAt: block?.at ?? null, blockedReason: block?.reason ?? null }, db);
+  }
+
   reserveOrderNo(businessId: string, db: Tx): Promise<number> {
     return this.repo.reserveOrderNo(businessId, db);
   }

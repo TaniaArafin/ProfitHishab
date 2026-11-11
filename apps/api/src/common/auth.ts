@@ -13,6 +13,10 @@ export interface AuthContext {
   timezone: string;
   /** Null = no time limit (early access). After it, AuthGuard refuses writes. */
   trialEndsAt: Date | null;
+  /** Set by a platform admin: AuthGuard refuses every request. */
+  blockedAt: Date | null;
+  /** Internal staff: may use /admin (AdminGuard). */
+  isPlatformAdmin: boolean;
 }
 
 export interface AuthedRequest extends Request {

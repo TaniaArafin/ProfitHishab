@@ -14,6 +14,10 @@ import {
   trialDaysLeft,
   trialEndsAt,
   isTrialOver,
+  accessStatus,
+  newAccessEnd,
+  adminAccessSchema,
+  adminBlockSchema,
 } from './index';
 
 describe('normalizePhone', () => {
@@ -160,5 +164,39 @@ describe('registerSchema', () => {
   it('needs an email or a phone; the code is optional here (the API decides if it is required)', () => {
     expect(registerSchema.parse({ ...base, phone: undefined, email: 'A@B.co' })).toMatchObject({ email: 'a@b.co' });
     expect(registerSchema.safeParse({ ...base, phone: '' }).success).toBe(false);
+  });
+});
+
+describe('admin access changes', () => {
+  const now = new Date('2026-11-06T10:00:00Z');
+  const later = new Date('2026-11-10T10:00:00Z');
+
+  it('derives the status: blocked first, then unlimited, trial or ended', () => {
+    expect(accessStatus(later, now, now)).toBe('blocked');
+    expect(accessStatus(null, null, now)).toBe('unlimited');
+    expect(accessStatus(later, null, now)).toBe('trial');
+    expect(accessStatus('2026-11-01T00:00:00Z', null, now)).toBe('ended');
+  });
+
+  it('extends from the current end while access is running, and from now once it has ended', () => {
+    expect(newAccessEnd({ mode: 'extend', days: 7 }, later, now)?.toISOString()).toBe('2026-11-17T10:00:00.000Z');
+    expect(newAccessEnd({ mode: 'extend', days: 7 }, new Date('2026-11-01T00:00:00Z'), now)?.toISOString()).toBe(
+      '2026-11-13T10:00:00.000Z',
+    );
+    expect(newAccessEnd({ mode: 'extend', days: 1 }, null, now)?.toISOString()).toBe('2026-11-07T10:00:00.000Z');
+  });
+
+  it('runs "until" to the end of that day in Dhaka, and handles unlimited and end now', () => {
+    expect(newAccessEnd({ mode: 'until', date: '2026-12-31' }, later, now)?.toISOString()).toBe('2026-12-31T17:59:59.999Z');
+    expect(newAccessEnd({ mode: 'unlimited' }, later, now)).toBeNull();
+    expect(newAccessEnd({ mode: 'end' }, later, now)?.toISOString()).toBe(now.toISOString());
+  });
+
+  it('validates admin input', () => {
+    expect(adminAccessSchema.safeParse({ mode: 'extend', days: 0 }).success).toBe(false);
+    expect(adminAccessSchema.safeParse({ mode: 'extend', days: '14' }).success).toBe(true);
+    expect(adminAccessSchema.safeParse({ mode: 'until', date: '31/12/2026' }).success).toBe(false);
+    expect(adminAccessSchema.safeParse({ mode: 'forever' }).success).toBe(false);
+    expect(adminBlockSchema.safeParse({ reason: ' x ' }).success).toBe(false);
   });
 });

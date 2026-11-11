@@ -51,6 +51,18 @@ export class PasswordResetService {
     });
   }
 
+  /**
+   * Platform admin: a reset link for a user, returned instead of emailed, so the admin can send it by
+   * SMS or WhatsApp (phone-only accounts have no email). Same rules: single use, 60 minutes, newest only.
+   */
+  async createLink(userId: string, now = new Date()): Promise<{ url: string; expiresAt: Date }> {
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(now.getTime() + RESET.ttlMinutes * 60_000);
+    const link = await this.resets.create({ userId, tokenHash: hashToken(token), expiresAt });
+    await this.resets.closeOthers(userId, link.id, now);
+    return { url: `${config().webOrigin}/reset-password?token=${encodeURIComponent(token)}`, expiresAt };
+  }
+
   /** Sets the new password, closes every link of the user and revokes all their sessions, in one transaction. */
   async reset(input: ResetPasswordInput, now = new Date()): Promise<void> {
     const link = await this.resets.findLive(hashToken(input.token), now);

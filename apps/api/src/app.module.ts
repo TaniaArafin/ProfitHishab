@@ -8,6 +8,7 @@ import { loggerParams } from './common/logging';
 import { PrismaModule } from './common/prisma.service';
 import { config } from './config';
 import { HealthController } from './health.controller';
+import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BusinessModule } from './modules/business/business.module';
 import { CustomersModule } from './modules/customers/customers.module';
@@ -22,6 +23,7 @@ import { ProfitModule } from './modules/profit/profit.module';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: config().rateLimitPerMinute }]),
     PrismaModule,
     AuthModule,
+    AdminModule,
     BusinessModule,
     ProductsModule,
     CustomersModule,

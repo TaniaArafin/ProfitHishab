@@ -14,6 +14,8 @@ model User {
   phone           String?          @unique
   /// Set when the phone was confirmed with an SMS code at registration. Null for early-access accounts.
   phoneVerifiedAt DateTime?
+  /// Internal ProfitHishab staff: may use /admin. Set only with `npm run admin:grant`, never through the API.
+  isPlatformAdmin Boolean          @default(false)
   passwordHash    String
   locale          String           @default("bn")
   createdAt       DateTime         @default(now())
@@ -21,6 +23,7 @@ model User {
   sessions        Session[]
   memberships     BusinessMember[]
   passwordResets  PasswordReset[]
+  adminActions    AdminAction[]
 
   @@map("users")
 }
@@ -60,6 +63,9 @@ model Business {
   nextOrderNo          Int               @default(1001)
   /// End of the free trial; writes are refused after it. Null = no limit (early-access sellers).
   trialEndsAt          DateTime?
+  /// Blocked by a platform admin: nobody in the business can log in. Null = not blocked.
+  blockedAt            DateTime?
+  blockedReason        String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   members              BusinessMember[]
@@ -72,6 +78,7 @@ model Business {
   expenses             Expense[]
   imports              Import[]
   trialClaims          TrialClaim[]
+  adminActions         AdminAction[]
 
   @@map("businesses")
 }
@@ -367,4 +374,21 @@ model PasswordReset {
 
   @@index([userId, createdAt])
   @@map("password_resets")
+}
+
+/// What platform admins changed, newest first in the admin panel. Kept when the admin or business is deleted.
+model AdminAction {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  adminUserId String?   @db.Uuid
+  businessId  String?   @db.Uuid
+  /// set_access | block | unblock | reset_link (CHECK constraint, ADMIN_ACTIONS in shared enums)
+  action      String
+  /// What changed, e.g. {"from": "...", "to": "..."} or {"reason": "..."}
+  details     Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  admin       User?     @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+  business    Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, createdAt])
+  @@map("admin_actions")
 }

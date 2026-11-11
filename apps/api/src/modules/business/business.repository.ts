@@ -33,6 +33,17 @@ export class BusinessRepository {
     return this.prisma.business.update({ where: { id: businessId }, data });
   }
 
+  /** The access fields, locked until the transaction ends (two admins changing access at once). */
+  async lockAccess(businessId: string, db: Tx): Promise<{ trialEndsAt: Date | null; blockedAt: Date | null } | null> {
+    const rows = await db.$queryRaw<Array<{ trialEndsAt: Date | null; blockedAt: Date | null }>>`
+      SELECT "trialEndsAt", "blockedAt" FROM businesses WHERE id = ${businessId}::uuid FOR UPDATE`;
+    return rows[0] ?? null;
+  }
+
+  setAccess(businessId: string, data: { trialEndsAt?: Date | null; blockedAt?: Date | null; blockedReason?: string | null }, db: Tx) {
+    return db.business.update({ where: { id: businessId }, data, select: { id: true } });
+  }
+
   /** Atomically reserves the next human order number for the business. */
   async reserveOrderNo(businessId: string, db: Tx): Promise<number> {
     const b = await db.business.update({

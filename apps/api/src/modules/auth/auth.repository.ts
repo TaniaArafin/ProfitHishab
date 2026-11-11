@@ -43,10 +43,11 @@ export class AuthRepository {
         lastUsedAt: true,
         user: {
           select: {
+            isPlatformAdmin: true,
             memberships: {
               take: 1,
               orderBy: { createdAt: 'asc' },
-              select: { business: { select: { id: true, timezone: true, trialEndsAt: true } } },
+              select: { business: { select: { id: true, timezone: true, trialEndsAt: true, blockedAt: true } } },
             },
           },
         },
@@ -66,6 +67,30 @@ export class AuthRepository {
     return db.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
   }
 
+  /** True when the user's business was blocked by a platform admin. */
+  async isBlocked(userId: string): Promise<boolean> {
+    const member = await this.prisma.businessMember.findFirst({
+      where: { userId, business: { blockedAt: { not: null } } },
+      select: { id: true },
+    });
+    return member !== null;
+  }
+
+  /** Logs out everyone in a business (it was blocked). */
+  revokeBusinessSessions(businessId: string, db: Tx) {
+    return db.session.updateMany({
+      where: { revokedAt: null, user: { memberships: { some: { businessId } } } },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  /** Platform admin flag; only `npm run admin:grant` calls this. Returns the user, or null when unknown. */
+  setPlatformAdmin(where: { email?: string; phone?: string }, on: boolean) {
+    return this.prisma.user
+      .updateMany({ where, data: { isPlatformAdmin: on } })
+      .then(({ count }) => (count === 1 ? this.prisma.user.findFirst({ where, select: { id: true, name: true } }) : null));
+  }
+
   updatePassword(userId: string, passwordHash: string, db: Tx) {
     return db.user.update({ where: { id: userId }, data: { passwordHash }, select: { id: true } });
   }
@@ -73,7 +98,7 @@ export class AuthRepository {
   findUser(userId: string) {
     return this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { id: true, name: true, email: true, phone: true, locale: true },
+      select: { id: true, name: true, email: true, phone: true, locale: true, isPlatformAdmin: true },
     });
   }
 
