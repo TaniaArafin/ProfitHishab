@@ -1,5 +1,19 @@
 import { z } from 'zod';
-import { ACCESS_STATUSES, CREATABLE_ORDER_STATUSES, EXPENSE_KINDS, ORDER_STATUSES, PAYMENT_METHODS, PRODUCT_STATUSES } from './enums';
+import {
+  ACCESS_STATUSES,
+  BILLING_METHODS,
+  BILLING_MONTH_OPTIONS,
+  BILLING_PAYMENT_STATUSES,
+  CREATABLE_ORDER_STATUSES,
+  EXPENSE_KINDS,
+  IMPORT_ROW_STATUSES,
+  IMPORT_TARGETS,
+  IMPORT_TARGET_LABELS,
+  REQUIRED_IMPORT_TARGETS,
+  ORDER_STATUSES,
+  PAYMENT_METHODS,
+  PRODUCT_STATUSES,
+} from './enums';
 import { isIsoDate } from './dates';
 import { normalizePhone, toAsciiDigits } from './phone';
 
@@ -277,3 +291,69 @@ export const adminBlockSchema = z.object({
   reason: z.string().trim().min(3, 'Say why, so other admins know').max(300),
 });
 export type AdminBlockInput = z.infer<typeof adminBlockSchema>;
+
+// ── Billing ────────────────────────────────────────────────────────────
+
+const senderNumber = z.string().transform((value, ctx) => {
+  const normalized = normalizePhone(value);
+  if (!normalized) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter the 11-digit number you paid from.' });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
+/** A seller reports a bKash or Nagad payment they made to our number. */
+export const paymentSubmitSchema = z.object({
+  method: z.enum(BILLING_METHODS),
+  months: z.coerce.number().refine((m) => (BILLING_MONTH_OPTIONS as readonly number[]).includes(m), 'Choose 1, 3, 6 or 12 months'),
+  senderNumber,
+  transactionId: z
+    .string()
+    .trim()
+    .transform((v) => v.toUpperCase())
+    .pipe(z.string().regex(/^[A-Z0-9]{8,20}$/, 'Enter the transaction ID from the bKash or Nagad SMS.')),
+});
+export type PaymentSubmitInput = z.infer<typeof paymentSubmitSchema>;
+
+export const paymentRejectSchema = z.object({ reason: z.string().trim().min(3, 'Say why (at least 3 characters)').max(300) });
+export type PaymentRejectInput = z.infer<typeof paymentRejectSchema>;
+
+export const adminPaymentListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(25),
+  status: z.enum(BILLING_PAYMENT_STATUSES).default('pending'),
+});
+export type AdminPaymentListQuery = z.infer<typeof adminPaymentListQuerySchema>;
+
+/** Which spreadsheet column fills which order field, and how status texts map to order statuses. */
+export const importMappingSchema = z
+  .object({
+    columns: z.record(z.enum(IMPORT_TARGETS), z.string().min(1)),
+    statuses: z.record(z.string(), z.enum(ORDER_STATUSES)).default({}),
+  })
+  .superRefine((d, ctx) => {
+    for (const target of REQUIRED_IMPORT_TARGETS) {
+      if (!d.columns[target]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Choose the column for ${IMPORT_TARGET_LABELS[target]}.`,
+          path: ['columns', target],
+        });
+      }
+    }
+  });
+export type ImportMapping = z.infer<typeof importMappingSchema>;
+
+export const importRowsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(25),
+  status: z.enum(IMPORT_ROW_STATUSES).optional(),
+});
+export type ImportRowsQuery = z.infer<typeof importRowsQuerySchema>;
+
+export const importListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(25),
+});
+export type ImportListQuery = z.infer<typeof importListQuerySchema>;

@@ -10,9 +10,11 @@ import { config } from './config';
 import { HealthController } from './health.controller';
 import { AdminModule } from './modules/admin/admin.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { BusinessModule } from './modules/business/business.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
+import { ImportsModule } from './modules/imports/imports.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { ProductsModule } from './modules/products/products.module';
 import { ProfitModule } from './modules/profit/profit.module';
@@ -24,12 +26,14 @@ import { ProfitModule } from './modules/profit/profit.module';
     PrismaModule,
     AuthModule,
     AdminModule,
+    BillingModule,
     BusinessModule,
     ProductsModule,
     CustomersModule,
     OrdersModule,
     ExpensesModule,
     ProfitModule,
+    ImportsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -12,12 +12,16 @@ import {
   registerSchema,
   toPoisha,
   trialDaysLeft,
+  trialBanner,
   trialEndsAt,
   isTrialOver,
   accessStatus,
   newAccessEnd,
   adminAccessSchema,
   adminBlockSchema,
+  paymentSubmitSchema,
+  importMappingSchema,
+  importRowsQuerySchema,
 } from './index';
 
 describe('normalizePhone', () => {
@@ -151,6 +155,14 @@ describe('free trial', () => {
     expect(trialDaysLeft('2026-10-26T10:00:00Z', now)).toBe(0);
     expect(trialDaysLeft(null, now)).toBeNull();
   });
+
+  it('shows the banner from 3 days left, never for unlimited, and "ended" after the end', () => {
+    expect(trialBanner(null, now)).toBeNull();
+    expect(trialBanner('2026-10-31T10:00:00Z', now)).toBeNull(); // 4 days
+    expect(trialBanner('2026-10-30T10:00:00Z', now)).toEqual({ kind: 'ending', daysLeft: 3 });
+    expect(trialBanner('2026-10-27T15:00:00Z', now)).toEqual({ kind: 'ending', daysLeft: 1 });
+    expect(trialBanner('2026-10-27T09:59:59.999Z', now)).toEqual({ kind: 'ended' });
+  });
 });
 
 describe('registerSchema', () => {
@@ -198,5 +210,61 @@ describe('admin access changes', () => {
     expect(adminAccessSchema.safeParse({ mode: 'until', date: '31/12/2026' }).success).toBe(false);
     expect(adminAccessSchema.safeParse({ mode: 'forever' }).success).toBe(false);
     expect(adminBlockSchema.safeParse({ reason: ' x ' }).success).toBe(false);
+  });
+});
+
+describe('paymentSubmitSchema', () => {
+  const ok = { method: 'bkash', months: 1, senderNumber: '01712345678', transactionId: '8N7A6D5C4B' };
+
+  it('trims and uppercases the transaction ID', () => {
+    const r = paymentSubmitSchema.parse({ ...ok, transactionId: ' 8n7a6d5c4b ' });
+    expect(r.transactionId).toBe('8N7A6D5C4B');
+  });
+
+  it('normalises the sender number', () => {
+    expect(paymentSubmitSchema.parse({ ...ok, senderNumber: '+8801712345678' }).senderNumber).toBe('01712345678');
+  });
+
+  it('accepts months as a string from a form and rejects 2', () => {
+    expect(paymentSubmitSchema.parse({ ...ok, months: '3' }).months).toBe(3);
+    expect(paymentSubmitSchema.safeParse({ ...ok, months: 2 }).success).toBe(false);
+  });
+
+  it('rejects a short transaction ID with the seller-facing message', () => {
+    const r = paymentSubmitSchema.safeParse({ ...ok, transactionId: 'ABC' });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toBe('Enter the transaction ID from the bKash or Nagad SMS.');
+  });
+});
+
+describe('import schemas', () => {
+  const required = { phone: 'Phone', product: 'Item', quantity: 'Qty', sellingPrice: 'Price' };
+
+  it('importMappingSchema accepts the four required columns and defaults statuses to {}', () => {
+    const r = importMappingSchema.safeParse({ columns: required });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.statuses).toEqual({});
+      expect(r.data.columns.phone).toBe('Phone');
+    }
+  });
+
+  it('importMappingSchema rejects a mapping without quantity, with fields[columns.quantity]', () => {
+    const { quantity: _q, ...rest } = required;
+    const r = importMappingSchema.safeParse({ columns: rest });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const fields: Record<string, string[]> = {};
+      for (const i of r.error.issues) (fields[i.path.join('.')] ??= []).push(i.message);
+      expect(fields['columns.quantity']).toEqual(['Choose the column for Quantity.']);
+      expect(Object.keys(fields)).toEqual(['columns.quantity']);
+    }
+  });
+
+  it('importRowsQuerySchema caps perPage at 100', () => {
+    expect(importRowsQuerySchema.safeParse({ perPage: '101' }).success).toBe(false);
+    const r = importRowsQuerySchema.parse({});
+    expect(r).toMatchObject({ page: 1, perPage: 25 });
+    expect(importRowsQuerySchema.parse({ perPage: '100', status: 'duplicate' }).status).toBe('duplicate');
   });
 });

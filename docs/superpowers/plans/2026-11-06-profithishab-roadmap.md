@@ -40,12 +40,15 @@
 | Landing page | Section 9 | Done (English only) |
 | Platform admin panel | FR-V2-09 (early) | Done: list, access changes, block, password link, history |
 | shadcn UI, responsive on every screen size | Section 9 | Done |
+| Excel / CSV order import (Phase 1) | FR-IMP-01–13 | Done |
 
 ## Part B: What is left, in build order
 
 Each phase ends with working, tested software. A phase starts only after the one before it ships. The order follows SRS 11, which says import, the profit dashboard and product profitability can never be cut, plus what is needed to take money.
 
 ### Phase 1: Excel / CSV order import (FR-IMP-01–13)
+
+**Status: built.** The wizard, history with undo, template, rejected-rows CSV and the register → import → see profit Playwright test (`apps/web/e2e/import.spec.ts`) are done; SRS 11.1 items 2–4 pass with the fixture. The review and the owner's commit are all that remain.
 
 **Why first:** the SRS calls import "V1 priority" and never-cut. Sellers keep their orders in Excel; without import nobody sees their profit in the first five minutes.
 
@@ -78,6 +81,8 @@ Each phase ends with working, tested software. A phase starts only after the one
 **Done when:** e2e tests cover a wrong current password (422), a taken email (409), and sessions revoked after a change.
 
 ### Phase 4: Getting paid (not in the SRS; SRS needs a new section first)
+
+**Status (2026-11-11): built, manual-payment version.** Trial banner, `/billing` (seller sends bKash/Nagad money and submits the TrxID), `/admin/payments` (admin confirms or rejects), one plan priced by `PLAN_PRICE_TAKA`, 1/3/6/12 months. Not built: a payment gateway, auto-matching, renewal reminders. Plan: `docs/superpowers/plans/2026-11-11-trial-banner-and-billing.md`.
 
 **Why:** after the 7-day trial a seller is read-only, and there is no way to pay. Today an admin can only "Add days".
 

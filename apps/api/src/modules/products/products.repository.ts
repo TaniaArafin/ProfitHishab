@@ -87,9 +87,13 @@ export class ProductsRepository {
   }
 
   /** What the search index stores per product, in id order after `afterId` (for batched reindexing). */
-  searchDocs(opts: { ids?: string[]; afterId?: string; limit?: number }) {
+  searchDocs(opts: { businessId?: string; ids?: string[]; afterId?: string; limit?: number }) {
     return this.prisma.product.findMany({
-      where: { ...(opts.ids ? { id: { in: opts.ids } } : {}), ...(opts.afterId ? { id: { gt: opts.afterId } } : {}) },
+      where: {
+        ...(opts.businessId ? { businessId: opts.businessId } : {}),
+        ...(opts.ids ? { id: { in: opts.ids } } : {}),
+        ...(opts.afterId ? { id: { gt: opts.afterId } } : {}),
+      },
       orderBy: { id: 'asc' },
       take: opts.limit,
       select: { id: true, businessId: true, name: true, sku: true, status: true },
@@ -125,10 +129,56 @@ export class ProductsRepository {
 
   /** Next free PRD-0001 style SKU. */
   async nextSku(businessId: string): Promise<string> {
-    const [row] = await this.prisma.$queryRaw<[{ max: number | null }]>`
+    return `PRD-${String((await this.maxGeneratedSku(businessId)) + 1).padStart(4, '0')}`;
+  }
+
+  /** The highest number used in a PRD-0001 style SKU, 0 when none. */
+  async maxGeneratedSku(businessId: string, db: Tx = this.prisma): Promise<number> {
+    const [row] = await db.$queryRaw<[{ max: number | null }]>`
       SELECT max(substring(sku FROM 5)::int) AS max FROM products
       WHERE "businessId" = ${businessId}::uuid AND sku ~ '^PRD-[0-9]+$'`;
-    return `PRD-${String((row?.max ?? 0) + 1).padStart(4, '0')}`;
+    return row?.max ?? 0;
+  }
+
+  /**
+   * Products whose SKU or name (trimmed, any case) is one of these lower-cased values, in one query.
+   * Active before archived, then oldest first, so the caller can take the first match per key.
+   */
+  findBySkusOrNames(
+    businessId: string,
+    skus: string[],
+    names: string[],
+    db: Tx,
+  ): Promise<Array<{ id: string; name: string; sku: string; costPrice: number }>> {
+    if (skus.length === 0 && names.length === 0) return Promise.resolve([]);
+    return db.$queryRaw`
+      SELECT id, name, sku, "costPrice" FROM products
+      WHERE "businessId" = ${businessId}::uuid
+        AND (lower(btrim(sku)) = ANY(${skus}::text[]) OR lower(btrim(name)) = ANY(${names}::text[]))
+      ORDER BY (status = 'archived'), "createdAt", id`;
+  }
+
+  /** One INSERT for many products; returns each new product's id and SKU. */
+  createMany(
+    businessId: string,
+    rows: Array<{ name: string; sku: string; sellingPrice: number; costPrice: number; importId: string | null }>,
+    db: Tx,
+  ): Promise<Array<{ id: string; sku: string }>> {
+    if (rows.length === 0) return Promise.resolve([]);
+    return db.product.createManyAndReturn({
+      data: rows.map((r) => ({ ...r, businessId, status: 'active' })),
+      select: { id: true, sku: true },
+    });
+  }
+
+  /** Deletes the products this import created that no order line uses, in one statement; price rows cascade. Returns their ids. */
+  async deleteUnusedFromImport(businessId: string, importId: string, db: Tx): Promise<string[]> {
+    const rows = await db.$queryRaw<Array<{ id: string }>>`
+      DELETE FROM products p
+      WHERE p."businessId" = ${businessId}::uuid AND p."importId" = ${importId}::uuid
+        AND NOT EXISTS (SELECT 1 FROM order_items i WHERE i."productId" = p.id)
+      RETURNING p.id`;
+    return rows.map((r) => r.id);
   }
 
   create(businessId: string, data: Omit<Prisma.ProductUncheckedCreateInput, 'businessId'>, db: Tx = this.prisma) {

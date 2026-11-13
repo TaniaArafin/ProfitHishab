@@ -44,7 +44,7 @@ export class Client {
    * `opts.idempotencyKey` is given (null sends none).
    */
   async send(
-    method: 'post' | 'patch' | 'delete',
+    method: 'post' | 'put' | 'patch' | 'delete',
     path: string,
     body?: object,
     opts: { csrf?: boolean; idempotencyKey?: string | null } = {},
@@ -54,6 +54,15 @@ export class Client {
     const key = opts.idempotencyKey === undefined && method === 'post' && path === '/orders' ? randomUUID() : opts.idempotencyKey;
     if (key) req = req.set('Idempotency-Key', key);
     return this.capture(await req.send(body));
+  }
+
+  /** Multipart POST with one file part, plus the session cookie and CSRF header like `send`. */
+  upload(path: string, fieldName: string, buffer: Buffer, filename: string) {
+    return request(this.app.getHttpServer())
+      .post(`/v1${path}`)
+      .set('Cookie', this.cookie())
+      .set('x-csrf-token', CSRF)
+      .attach(fieldName, buffer, filename);
   }
 }
 

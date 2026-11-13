@@ -62,7 +62,7 @@ packages/shared/src/
   enums.ts            + IMPORT_STATUSES, IMPORT_ROW_STATUSES, IMPORT_TARGETS, REQUIRED_IMPORT_TARGETS, IMPORT_ROW_REASONS
   schemas.ts          + importMappingSchema, importRowsQuerySchema
   types.ts            + ImportDto, ImportListItemDto, ImportRowDto, ImportCommitResultDto, ImportUndoResultDto
-apps/api/prisma/migrations/20261107090000_imports/migration.sql
+apps/api/prisma/migrations/20261112090000_imports/migration.sql
 apps/api/src/common/csv.ts                       toCsv(): BOM + RFC 4180 (Phase 2 reuses it)
 apps/api/src/modules/imports/
   imports.module.ts  imports.controller.ts  imports.service.ts  imports.errors.ts  imports.presenter.ts
@@ -98,7 +98,8 @@ apps/web/e2e/import.spec.ts
   - `IMPORT_TARGETS`: the 16 targets in Global Constraints.
   - `REQUIRED_IMPORT_TARGETS = ['phone','product','quantity','sellingPrice'] as const`
   - `IMPORT_ROW_REASONS`: the five invalid reasons plus `'order_conflict'`, `'duplicate_ref'`, `'duplicate_row'`, `'duplicate_in_file'`.
-  - `IMPORT_ROW_WARNINGS = ['date_missing','cost_missing'] as const`
+  - `IMPORT_ROW_WARNINGS = ['date_missing','cost_missing','discount_clamped'] as const`
+  - `type ImportMapping = z.infer<typeof importMappingSchema>` (Task 3 and Task 6 use it).
   - Types: `ImportStatus`, `ImportRowStatus`, `ImportTarget`, `ImportRowReason`.
 - Produces (schemas):
   - `importMappingSchema = z.object({ columns: z.record(z.enum(IMPORT_TARGETS), z.string().min(1)), statuses: z.record(z.string(), z.enum(ORDER_STATUSES)).default({}) })`, refined so every required target is present. The error path is `columns.<target>` with the message `Choose the column for <label>.`.
@@ -123,7 +124,7 @@ apps/web/e2e/import.spec.ts
 
 **Files:**
 - Modify: `apps/api/prisma/schema.prisma`
-- Create: `apps/api/prisma/migrations/20261107090000_imports/migration.sql`, `modules/imports/imports.repository.ts`, `import-mappings.repository.ts`
+- Create: `apps/api/prisma/migrations/20261112090000_imports/migration.sql`, `modules/imports/imports.repository.ts`, `import-mappings.repository.ts`
 - Test: `apps/api/test/imports.e2e-spec.ts` (DB section)
 
 **Schema changes:**
@@ -245,7 +246,7 @@ apps/web/e2e/import.spec.ts
     - `D0 CF 11 E0` is xls.
     - Otherwise CSV, if there is no NUL byte in the first 8 KB.
   - Read with `XLSX.read(buf, { type: 'buffer', cellDates: false, raw: false })`. Use the first sheet and `sheet_to_json(ws, { header: 1, defval: '', raw: false })`.
-  - The header is the first row with any non-empty cell. Empty header cells become `Column <n>`; duplicate headers get ` (2)`.
+  - The header is the first row with **2 or more** non-empty cells. If no row has 2, use the first non-empty row. Title rows like `My Shop` above the header are common. Empty header cells become `Column <n>`; duplicate headers get ` (2)`.
   - Data rows that are completely empty are skipped. `rowNumber` is the 1-based spreadsheet row.
   - Excel date cells come back as their serial number string. Set `dateNF` so they do not format; `parseImportDate` handles serials.
 - `buildTemplate(): Buffer`: an xlsx with the headers `Order ID, Order date, Customer name, Phone, Address, Product, SKU, Quantity, Selling price, Product cost, Discount, Delivery charge, Courier, Courier cost, Payment method, Status` and two example rows.
@@ -261,7 +262,7 @@ apps/web/e2e/import.spec.ts
 - [ ] **Step 1: Write failing tests.** Build the inputs in the test with `XLSX.utils.aoa_to_sheet` and `XLSX.write`:
   - `reads the first sheet of an xlsx`.
   - `reads a CSV with a UTF-8 BOM and Bangla headers`.
-  - `uses the first non-empty row as the header and skips blank rows` (Review Focus 5): rows `['My Shop'], [], ['Phone','Product'], ['01712345678','Saree'], [], ['01812345678','Panjabi']` give headers `['Phone','Product']` and rows numbered 4 and 6. A one-cell title row counts as non-empty, so the expected header is the first row with **two or more** non-empty cells. Pin this in the test.
+  - `uses the first non-empty row as the header and skips blank rows` (Review Focus 5): rows `['My Shop'], [], ['Phone','Product'], ['01712345678','Saree'], [], ['01812345678','Panjabi']` give headers `['Phone','Product']` and rows numbered 4 and 6. The one-cell title row is skipped because the header needs 2 or more non-empty cells.
   - `rejects a PNG renamed to .xlsx with import_file_unsupported`.
   - `rejects 5,001 data rows with import_too_many_rows`.
   - `buildTemplate() round-trips through readSpreadsheet with 16 headers`.
@@ -324,7 +325,7 @@ apps/web/e2e/import.spec.ts
 **Interfaces (Produces):**
 - `toCsv(header: string[], rows: string[][]): string`. Starts with `﻿`, uses CRLF, and quotes cells containing `"`, `,`, CR or LF.
 - `ImportsService.validate(auth, id): Promise<ImportDto>`. Allowed from `mapped | validated`, otherwise `notReady`. Steps:
-  1. Read all rows and the couriers of the business. Courier names are matched case-insensitively to ids; Task 7's `BusinessService.couriersByName` returns `Map<lowerName, id>`.
+  1. Read all rows and the couriers of the business. Courier names are matched case-insensitively to ids. **This task** adds `BusinessService.couriersByName(businessId): Promise<Map<string,string>>` (lowercased name → id) and `OrdersService.existingImportKeys` (step 3); Task 7 reuses both.
   2. Run `parseRow` on each row, then `groupOrders` on the parsed rows.
   3. Duplicates: one query for `externalRef IN (…)` and one for `dedupeHash IN (…)` against `orders` of this business, through `OrdersService.existingImportKeys(businessId, refs, hashes): Promise<{ refs: Set<string>; hashes: Set<string> }>`. A hash already seen earlier in the file is `duplicate_in_file`.
   4. A group is valid only if all of its rows are valid. A duplicate `externalRef` marks the whole group `duplicate` with `duplicate_ref`.
@@ -432,7 +433,7 @@ apps/web/e2e/import.spec.ts
 **Files:**
 - Create: the `apps/web/app/(app)/imports/**` files listed in File structure.
 - Modify:
-  - `apps/web/lib/client-api.ts`: add `upload<T>(path: string, file: File): Promise<ApiResult<T>>`. Sends `FormData` with no `content-type`, but keeps the CSRF header.
+  - `apps/web/lib/client-api.ts`: add `upload<T>(path: string, file: File): Promise<ApiResult<T>>`. Sends `FormData` with no `content-type`, but keeps the CSRF header. Also give `api()` an optional `timeoutMs` (default stays 20 s); upload, validate and commit pass `60_000`, because a 5,000-row import can take close to 20 s.
   - `components/AppShell.tsx`: add "Import" (`FileUp` icon) to the main group after Expenses.
   - `middleware.ts`: add `/imports` to `APP_PREFIXES`.
   - The dashboard `Onboarding` "Import your orders" link → `/imports/new`.

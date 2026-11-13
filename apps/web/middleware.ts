@@ -1,6 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-const APP_PREFIXES = ['/dashboard', '/orders', '/products', '/customers', '/expenses', '/reports', '/settings', '/admin'];
+const APP_PREFIXES = [
+  '/dashboard',
+  '/orders',
+  '/products',
+  '/customers',
+  '/expenses',
+  '/imports',
+  '/reports',
+  '/settings',
+  '/billing',
+  '/admin',
+];
 
 /**
  * 1. Issues the CSRF double-submit cookie the API checks on every mutation.

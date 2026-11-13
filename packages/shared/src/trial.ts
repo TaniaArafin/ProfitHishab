@@ -54,3 +54,14 @@ export function newAccessEnd(change: AccessChange, currentEnd: Date | null, now:
       return new Date(now.getTime());
   }
 }
+
+/** What the trial banner shows: nothing (unlimited, or more than 3 days left), the countdown, or "ended". */
+export type TrialBanner = { kind: 'ending'; daysLeft: number } | { kind: 'ended' };
+
+export const TRIAL_BANNER_DAYS = 3;
+
+export function trialBanner(endsAt: Date | string | null, now: Date): TrialBanner | null {
+  const daysLeft = trialDaysLeft(endsAt, now);
+  if (daysLeft === null || daysLeft > TRIAL_BANNER_DAYS) return null;
+  return daysLeft === 0 ? { kind: 'ended' } : { kind: 'ending', daysLeft };
+}

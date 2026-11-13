@@ -17,7 +17,8 @@ import { ExpensesModule } from '../expenses/expenses.module';
   imports: [BusinessModule, ExpensesModule],
   controllers: [AuthController],
   // For the admin module: session revocation, the admin flag and admin-made reset links.
-  exports: [AuthService, PasswordResetService],
+  // For billing: the owner's email and the Mailer for payment receipts.
+  exports: [AuthService, PasswordResetService, Mailer],
   providers: [
     AuthRepository,
     AuthService,

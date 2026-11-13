@@ -53,6 +53,40 @@ export class ProductPricesRepository {
     return new Map(rows.map((r) => [r.productId, { sellingPrice: r.sellingPrice, costPrice: r.costPrice }]));
   }
 
+  /** First price rows of new products, in one INSERT. */
+  async recordMany(
+    businessId: string,
+    rows: Array<PricePoint & { productId: string; effectiveFrom: string }>,
+    createdById: string | null,
+    db: Tx,
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    await db.productPrice.createMany({
+      data: rows.map((r) => ({ ...r, businessId, createdById, effectiveFrom: toDbDate(r.effectiveFrom) })),
+    });
+  }
+
+  /** Every cost row of these products, oldest first, in one query (for pricing lines on many dates). */
+  async costHistory(
+    businessId: string,
+    productIds: string[],
+    db: Tx,
+  ): Promise<Map<string, Array<{ effectiveFrom: string; costPrice: number }>>> {
+    const history = new Map<string, Array<{ effectiveFrom: string; costPrice: number }>>();
+    if (productIds.length === 0) return history;
+    const rows = await db.productPrice.findMany({
+      where: { businessId, productId: { in: productIds } },
+      orderBy: [{ productId: 'asc' }, { effectiveFrom: 'asc' }],
+      select: { productId: true, effectiveFrom: true, costPrice: true },
+    });
+    for (const r of rows) {
+      const list = history.get(r.productId) ?? [];
+      list.push({ effectiveFrom: fromDbDate(r.effectiveFrom), costPrice: r.costPrice });
+      history.set(r.productId, list);
+    }
+    return history;
+  }
+
   /** Newest first. */
   async history(businessId: string, productId: string): Promise<PriceHistoryRow[]> {
     const rows = await this.prisma.productPrice.findMany({

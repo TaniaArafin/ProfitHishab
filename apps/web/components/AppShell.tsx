@@ -2,6 +2,9 @@
 
 import clsx from 'clsx';
 import {
+  Banknote,
+  CreditCard,
+  FileUp,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -23,6 +26,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { api } from '@/lib/client-api';
 import { navigateFresh } from '@/lib/navigation';
 import { LogoMark } from './LogoMark';
+import { TrialBanner } from './TrialBanner';
 
 interface NavItem {
   href: string;
@@ -45,13 +49,26 @@ const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
       { href: '/products', label: 'Products', icon: Package },
       { href: '/customers', label: 'Customers', icon: Users },
       { href: '/expenses', label: 'Expenses', icon: Wallet },
+      { href: '/imports', label: 'Import', icon: FileUp },
     ],
   },
-  { title: 'Account', items: [{ href: '/settings', label: 'Settings', icon: Settings }] },
+  {
+    title: 'Account',
+    items: [
+      { href: '/billing', label: 'Billing', icon: CreditCard },
+      { href: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ];
 
 /** Only for platform admins (ProfitHishab staff). The API refuses /admin to everyone else anyway. */
-const ADMIN_GROUP = { title: 'ProfitHishab', items: [{ href: '/admin', label: 'Admin', icon: ShieldCheck }] };
+const ADMIN_GROUP = {
+  title: 'ProfitHishab',
+  items: [
+    { href: '/admin', label: 'Admin', icon: ShieldCheck },
+    { href: '/admin/payments', label: 'Payments', icon: Banknote },
+  ],
+};
 
 /** Phone: bottom tabs with a raised "+" for a new order. */
 const TABS: NavItem[] = [
@@ -73,11 +90,16 @@ export function AppShell({
   businessName,
   userName,
   isAdmin = false,
+  trialEndsAt,
+  paid = false,
   children,
 }: {
   businessName: string;
   userName: string;
   isAdmin?: boolean;
+  trialEndsAt: string | null;
+  /** The business has paid at least once, so the banner talks about the plan, not the trial. */
+  paid?: boolean;
   children: ReactNode;
 }) {
   const navGroups = isAdmin ? [...NAV_GROUPS, ADMIN_GROUP] : NAV_GROUPS;
@@ -97,6 +119,8 @@ export function AppShell({
   };
 
   const matches = (path: string, href: string) => {
+    // Payments live under /admin but have their own item.
+    if (href === '/admin') return path === '/admin' || (path.startsWith('/admin/') && !path.startsWith('/admin/payments'));
     if (href === '/orders') return path === '/orders' || (path.startsWith('/orders/') && path !== '/orders/new');
     return path === href || path.startsWith(`${href}/`);
   };
@@ -211,6 +235,7 @@ export function AppShell({
         </header>
 
         <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 2xl:max-w-[1400px] pb-32 pt-6 sm:px-6 lg:px-10 lg:pb-14 lg:pt-10">
+          <TrialBanner trialEndsAt={trialEndsAt} paid={paid} />
           {children}
         </main>
 

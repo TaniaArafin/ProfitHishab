@@ -33,6 +33,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typesense": "^2.1.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.24.0"
   },
   "devDependencies": {

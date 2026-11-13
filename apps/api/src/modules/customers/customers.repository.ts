@@ -88,4 +88,39 @@ export class CustomersRepository {
   update(customerId: string, data: Prisma.CustomerUpdateInput, db: Tx = this.prisma) {
     return db.customer.update({ where: { id: customerId }, data });
   }
+
+  /** The business's customers with these phones, in one query. */
+  findByPhones(businessId: string, phones: string[], db: Tx): Promise<Array<{ id: string; phone: string; address: string | null }>> {
+    if (phones.length === 0) return Promise.resolve([]);
+    return db.customer.findMany({ where: { businessId, phone: { in: phones } }, select: { id: true, phone: true, address: true } });
+  }
+
+  /** One INSERT for many customers; a phone that exists by now is skipped. Returns how many were inserted. */
+  async createMany(
+    businessId: string,
+    rows: Array<{ phone: string; name: string; address: string | null }>,
+    importId: string | null,
+    db: Tx,
+  ): Promise<number> {
+    if (rows.length === 0) return 0;
+    const { count } = await db.customer.createMany({ data: rows.map((r) => ({ ...r, businessId, importId })), skipDuplicates: true });
+    return count;
+  }
+
+  /** Deletes the customers this import created that no order uses, in one statement. */
+  deleteUnusedFromImport(businessId: string, importId: string, db: Tx): Promise<number> {
+    return db.$executeRaw`
+      DELETE FROM customers c
+      WHERE c."businessId" = ${businessId}::uuid AND c."importId" = ${importId}::uuid
+        AND NOT EXISTS (SELECT 1 FROM orders o WHERE o."customerId" = c.id)`;
+  }
+
+  /** Sets each customer's address where it is still empty, in one UPDATE. */
+  async fillMissingAddresses(businessId: string, rows: Array<{ id: string; address: string }>, db: Tx): Promise<void> {
+    if (rows.length === 0) return;
+    await db.$executeRaw`
+      UPDATE customers c SET address = v.address, "updatedAt" = now()
+      FROM (SELECT unnest(${rows.map((r) => r.id)}::uuid[]) AS id, unnest(${rows.map((r) => r.address)}::text[]) AS address) v
+      WHERE c.id = v.id AND c."businessId" = ${businessId}::uuid AND (c.address IS NULL OR c.address = '')`;
+  }
 }

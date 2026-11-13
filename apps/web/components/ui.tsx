@@ -28,7 +28,8 @@ export function PageHeader({
           </span>
         ) : null}
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-[28px]">{title}</h1>
+          {/* break-words: a long title such as an unspaced file name wraps instead of widening a 360 px page. */}
+          <h1 className="break-words text-2xl font-bold leading-tight tracking-tight sm:text-[28px]">{title}</h1>
           {description ? <div className="mt-1 text-sm text-ink-muted">{description}</div> : null}
         </div>
       </div>

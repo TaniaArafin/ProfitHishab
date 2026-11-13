@@ -102,6 +102,16 @@ export class AuthRepository {
     });
   }
 
+  /** The owner's email, or null when the owner signed up with a phone only (or there is no such business). */
+  async ownerEmail(businessId: string, db: Tx = this.prisma): Promise<string | null> {
+    const member = await db.businessMember.findFirst({
+      where: { businessId, role: 'owner' },
+      orderBy: { createdAt: 'asc' },
+      select: { user: { select: { email: true } } },
+    });
+    return member?.user.email ?? null;
+  }
+
   transaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.prisma.$transaction(fn);
   }

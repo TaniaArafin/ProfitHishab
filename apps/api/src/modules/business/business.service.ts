@@ -98,7 +98,33 @@ export class BusinessService {
     await this.repo.setAccess(businessId, { blockedAt: block?.at ?? null, blockedReason: block?.reason ?? null }, db);
   }
 
+  /** Billing, inside the confirm transaction: remembers when the business first paid (only the first time). */
+  async markPaid(businessId: string, at: Date, db: Tx): Promise<void> {
+    await this.repo.markPaid(businessId, at, db);
+  }
+
+  /**
+   * Courier id by lower-cased, trimmed name, for matching a spreadsheet's courier column (FR-IMP-02).
+   * Inactive couriers count: past orders may use them. On a name clash the oldest courier wins.
+   */
+  async couriersByName(businessId: string, db?: Tx): Promise<Map<string, string>> {
+    const byName = new Map<string, string>();
+    for (const c of await this.repo.courierNames(businessId, db)) {
+      const key = c.name.trim().toLowerCase();
+      if (!byName.has(key)) byName.set(key, c.id);
+    }
+    return byName;
+  }
+
   reserveOrderNo(businessId: string, db: Tx): Promise<number> {
     return this.repo.reserveOrderNo(businessId, db);
+  }
+
+  /**
+   * A block of `count` consecutive order numbers (an import); returns the first. The UPDATE also
+   * locks the business row until the transaction ends, so two imports of one business run one after the other.
+   */
+  reserveOrderNos(businessId: string, count: number, db: Tx): Promise<number> {
+    return this.repo.reserveOrderNos(businessId, count, db);
   }
 }

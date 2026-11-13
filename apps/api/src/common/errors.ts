@@ -116,7 +116,7 @@ export class TrialError extends AppError {
     return new TrialError(
       402,
       'trial_ended',
-      `Your ${TRIAL_DAYS}-day free trial has ended. Your data is safe and you can still view it; adding or changing anything needs a paid plan.`,
+      `Your ${TRIAL_DAYS}-day free trial has ended. Your data is safe and you can still view it; adding or changing anything needs a paid plan. Pay from the Billing page to continue.`,
     );
   }
 }

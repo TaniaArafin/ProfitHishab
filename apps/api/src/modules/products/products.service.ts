@@ -19,6 +19,45 @@ export interface ProductForOrder {
   archived: boolean;
 }
 
+/** A product as a spreadsheet line names it (FR-IMP-08). */
+export interface ImportProductRef {
+  sku: string | null;
+  name: string;
+  unitPrice: number;
+  unitCost: number | null;
+  orderDate: string;
+}
+
+/** A product an import's lines use: its snapshot fields, current cost and cost on any day. */
+export interface ImportProduct {
+  id: string;
+  name: string;
+  sku: string;
+  costPrice: number;
+  costOn: (date: string) => number;
+}
+
+/**
+ * The match key of a spreadsheet product: `sku:<sku>`, or `name:<name>` when it has none, trimmed and
+ * lower-cased. The prefixes keep SKU "hijab" and a product named "Hijab" apart.
+ */
+export function importProductKey(ref: { sku: string | null; name: string }): string {
+  const sku = ref.sku?.trim();
+  return sku ? `sku:${sku.toLowerCase()}` : `name:${ref.name.trim().toLowerCase()}`;
+}
+
+const GENERATED_SKU = /^PRD-(\d+)$/;
+
+/** The cost in effect on `date` (same rule as ProductPricesRepository.on): the latest row on or before it, else the first. */
+function costOnFrom(history: Array<{ effectiveFrom: string; costPrice: number }>, fallback: number) {
+  return (date: string): number => {
+    if (history.length === 0) return fallback;
+    let cost = history[0].costPrice;
+    for (const row of history) if (row.effectiveFrom <= date) cost = row.costPrice;
+    return cost;
+  };
+}
+
 /**
  * Product rules, and the public surface of the Products module: Orders calls
  * productsForOrder() and moveStock(), never ProductsRepository
@@ -73,7 +112,7 @@ export class ProductsService {
       await this.recordPrice(auth, product.id, input, tx);
       return product.id;
     });
-    await this.search.index([id]);
+    await this.search.index(businessId, [id]);
     return this.show(businessId, id);
   }
 
@@ -95,7 +134,7 @@ export class ProductsService {
       await this.repo.update(productId, { ...rest, ...(sku ? { sku } : {}) }, tx);
       if (priceChanged) await this.recordPrice(auth, productId, next, tx);
     });
-    if (input.name !== undefined || sku || input.status !== undefined) await this.search.index([productId]);
+    if (input.name !== undefined || sku || input.status !== undefined) await this.search.index(businessId, [productId]);
     return this.show(businessId, productId);
   }
 
@@ -156,6 +195,135 @@ export class ProductsService {
     const deltas = new Map<string, number>();
     for (const line of lines) deltas.set(line.productId, (deltas.get(line.productId) ?? 0) + direction * line.quantity);
     await this.repo.adjustStock(deltas, db);
+  }
+
+  // ── Public surface for Imports ───────────────────────────────────────
+
+  /**
+   * FR-IMP-08: finds each spreadsheet product by SKU, then by exact name (trimmed, any case), and
+   * creates the rest in one INSERT: the row's SKU or the next PRD- numbers, the first row's price,
+   * the first cost given (0 when none), tagged with the import. Each new product gets one price row,
+   * effective from the earliest order date that uses it. Fixed number of statements, whatever the size.
+   * Returns the products by importProductKey(), and the ids created (to index after the transaction).
+   */
+  async resolveForImport(
+    businessId: string,
+    refs: ReadonlyArray<ImportProductRef>,
+    importId: string,
+    createdById: string | null,
+    db: Tx,
+  ): Promise<{ products: Map<string, ImportProduct>; createdIds: string[] }> {
+    // One entry per key, in first-seen order.
+    const wanted = new Map<string, { sku: string | null; name: string; unitPrice: number; unitCost: number | null; firstDate: string }>();
+    for (const ref of refs) {
+      const key = importProductKey(ref);
+      const seen = wanted.get(key);
+      if (!seen) {
+        const sku = ref.sku?.trim() || null;
+        wanted.set(key, { sku, name: ref.name.trim(), unitPrice: ref.unitPrice, unitCost: ref.unitCost, firstDate: ref.orderDate });
+      } else {
+        seen.unitCost ??= ref.unitCost;
+        if (ref.orderDate < seen.firstDate) seen.firstDate = ref.orderDate;
+      }
+    }
+
+    const lower = (s: string) => s.trim().toLowerCase();
+    const entries = [...wanted.entries()];
+    const skus = entries.flatMap(([, w]) => (w.sku ? [lower(w.sku)] : []));
+    const names = entries.map(([, w]) => lower(w.name));
+    const rows = await this.repo.findBySkusOrNames(businessId, skus, names, db);
+    const bySku = new Map<string, (typeof rows)[number]>();
+    const byName = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      if (!bySku.has(lower(r.sku))) bySku.set(lower(r.sku), r);
+      if (!byName.has(lower(r.name))) byName.set(lower(r.name), r);
+    }
+
+    const matched = new Map<string, (typeof rows)[number]>();
+    const unmatched: Array<[string, (typeof entries)[number][1]]> = [];
+    for (const [key, w] of entries) {
+      const found = (w.sku ? bySku.get(lower(w.sku)) : undefined) ?? byName.get(lower(w.name));
+      if (found) matched.set(key, found);
+      else unmatched.push([key, w]);
+    }
+
+    // New products: a SKU from the file is kept; a name-only line reuses a new product of the same
+    // name, or gets the next PRD- number after any in use (in the business or in this file).
+    const fresh: Array<{ keys: string[]; sku: string; w: (typeof entries)[number][1] }> = [];
+    const freshByName = new Map<string, (typeof fresh)[number]>();
+    for (const [key, w] of unmatched.filter(([, w]) => w.sku)) {
+      const product = { keys: [key], sku: w.sku!.toUpperCase(), w };
+      fresh.push(product);
+      if (!freshByName.has(lower(w.name))) freshByName.set(lower(w.name), product);
+    }
+    let lastSku = Math.max(
+      await this.repo.maxGeneratedSku(businessId, db),
+      ...fresh.map((f) => Number(GENERATED_SKU.exec(f.sku)?.[1] ?? 0)),
+    );
+    for (const [key, w] of unmatched.filter(([, w]) => !w.sku)) {
+      const same = freshByName.get(lower(w.name));
+      if (same) {
+        same.keys.push(key);
+        same.w.unitCost ??= w.unitCost;
+        if (w.firstDate < same.w.firstDate) same.w.firstDate = w.firstDate;
+        continue;
+      }
+      lastSku += 1;
+      fresh.push({ keys: [key], sku: `PRD-${String(lastSku).padStart(4, '0')}`, w });
+    }
+
+    const inserted = await this.repo.createMany(
+      businessId,
+      fresh.map((f) => ({ name: f.w.name, sku: f.sku, sellingPrice: f.w.unitPrice, costPrice: f.w.unitCost ?? 0, importId })),
+      db,
+    );
+    const idBySku = new Map(inserted.map((p) => [p.sku, p.id]));
+    await this.prices.recordMany(
+      businessId,
+      fresh.map((f) => ({
+        productId: idBySku.get(f.sku)!,
+        sellingPrice: f.w.unitPrice,
+        costPrice: f.w.unitCost ?? 0,
+        effectiveFrom: f.w.firstDate,
+      })),
+      createdById,
+      db,
+    );
+
+    const history = await this.prices.costHistory(businessId, [...new Set([...matched.values()].map((p) => p.id))], db);
+    const products = new Map<string, ImportProduct>();
+    for (const [key, p] of matched) {
+      products.set(key, {
+        id: p.id,
+        name: p.name,
+        sku: p.sku,
+        costPrice: p.costPrice,
+        costOn: costOnFrom(history.get(p.id) ?? [], p.costPrice),
+      });
+    }
+    for (const f of fresh) {
+      const cost = f.w.unitCost ?? 0;
+      const product = { id: idBySku.get(f.sku)!, name: f.w.name, sku: f.sku, costPrice: cost, costOn: () => cost };
+      for (const key of f.keys) products.set(key, product);
+    }
+    return { products, createdIds: inserted.map((p) => p.id) };
+  }
+
+  /**
+   * FR-IMP-12: deletes the products this import created that no order line uses (run after its orders
+   * are gone); their price rows cascade. Returns the deleted ids, to pass to syncSearch after the commit.
+   */
+  deleteUnusedFromImport(businessId: string, importId: string, db: Tx): Promise<string[]> {
+    return this.repo.deleteUnusedFromImport(businessId, importId, db);
+  }
+
+  /**
+   * After a write outside this module's own methods (an import or its undo) commits: sync these
+   * products of the business to search. Call only after the transaction commits; ids missing from
+   * Postgres are removed from the index. Never throws.
+   */
+  syncSearch(businessId: string, productIds: string[]): Promise<void> {
+    return this.search.index(businessId, productIds);
   }
 
   // ── Categories ───────────────────────────────────────────────────────

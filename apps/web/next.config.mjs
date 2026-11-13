@@ -25,6 +25,13 @@ const nextConfig = {
     : {}),
   poweredByHeader: false,
   devIndicators: { position: 'bottom-right' },
+  experimental: {
+    // The /api rewrite proxy gives up after 30 s by default. Import validate and commit may take
+    // close to 20 s for 5,000 rows, and the browser waits 60 s for them (lib/client-api.ts).
+    // Body size needs no setting: the proxy forwards up to 10 MB (middlewareClientMaxBodySize's
+    // default, which also applies without middleware) and uploads are capped at 5 MB.
+    proxyTimeout: 60_000,
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

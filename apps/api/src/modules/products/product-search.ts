@@ -22,6 +22,7 @@ interface ProductSearchDoc {
 const MAX_HITS = 1000;
 const PAGE = 250; // Typesense's per_page ceiling
 const REINDEX_BATCH = 1000;
+const REMOVE_BATCH = 100; // ids per delete-by-filter request, to keep the URL short
 /** Bump when the fields below change: a new collection is built from Postgres on the next boot. */
 const SCHEMA_VERSION = 1;
 
@@ -88,13 +89,22 @@ export class ProductSearch implements OnApplicationBootstrap {
     }
   }
 
-  /** Re-reads these products from Postgres and upserts them into the index. Never throws. */
-  async index(productIds: string[]): Promise<void> {
+  /**
+   * Re-reads this business's products from Postgres and upserts them into the index. Never throws.
+   * Call only after the transaction commits; ids missing from Postgres are removed from the index.
+   */
+  async index(businessId: string, productIds: string[]): Promise<void> {
     if (!this.client || productIds.length === 0) return;
     try {
-      await this.upsert(await this.products.searchDocs({ ids: productIds }));
+      const docs = await this.products.searchDocs({ businessId, ids: productIds });
+      await this.upsert(docs);
+      const kept = new Set(docs.map((d) => d.id));
+      await this.remove(
+        businessId,
+        productIds.filter((id) => !kept.has(id)),
+      );
     } catch (error) {
-      this.logger.warn({ err: error, productIds }, 'Could not index products; the next reindex will catch up');
+      this.logger.warn({ err: error, businessId, productIds }, 'Could not index products; the next reindex will catch up');
     }
   }
 
@@ -171,6 +181,16 @@ export class ProductSearch implements OnApplicationBootstrap {
     };
     await client.collections().create(schema);
     return 0;
+  }
+
+  /** Deletes these documents of the business, a batch of ids per request (the filter goes in the URL). */
+  private async remove(businessId: string, ids: string[]): Promise<void> {
+    for (let i = 0; i < ids.length; i += REMOVE_BATCH) {
+      const batch = ids.slice(i, i + REMOVE_BATCH).map((id) => `\`${id}\``);
+      await this.client!.collections<ProductSearchDoc>(this.collection)
+        .documents()
+        .delete({ filter_by: `businessId:=\`${businessId}\` && id:[${batch.join(',')}]` });
+    }
   }
 
   private async upsert(docs: ProductSearchDoc[]): Promise<void> {

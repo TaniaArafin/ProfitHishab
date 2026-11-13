@@ -106,6 +106,19 @@ export class OrdersRepository {
     return rows.map((r) => r.id);
   }
 
+  /** Orders of the business whose externalRef or dedupeHash is one of these, in one query. */
+  importKeysIn(
+    businessId: string,
+    refs: string[],
+    hashes: string[],
+    db: Tx = this.prisma,
+  ): Promise<Array<{ externalRef: string | null; dedupeHash: string | null }>> {
+    return db.$queryRaw`
+      SELECT "externalRef", "dedupeHash" FROM orders
+      WHERE "businessId" = ${businessId}::uuid
+        AND ("externalRef" = ANY(${refs}::text[]) OR "dedupeHash" = ANY(${hashes}::text[]))`;
+  }
+
   findManyWithItems(businessId: string, orderIds: string[], db: Tx): Promise<OrderWithItems[]> {
     return db.order.findMany({ where: { businessId, id: { in: orderIds } }, include: { items: true }, orderBy: { orderNo: 'asc' } });
   }
@@ -115,6 +128,46 @@ export class OrdersRepository {
       data: { ...data, businessId, items: { create: items.map((i) => ({ ...i, businessId })) } },
       select: { id: true },
     });
+  }
+
+  /**
+   * Many orders with their items and first history rows, in three INSERTs (an import).
+   * Order numbers are unique per business, so the new ids are matched back by orderNo.
+   */
+  async createMany(
+    businessId: string,
+    orders: Array<{
+      order: Omit<Prisma.OrderCreateManyInput, 'businessId'> & { orderNo: number; status: string };
+      items: NewOrderItem[];
+    }>,
+    changedById: string,
+    db: Tx,
+  ): Promise<Map<number, string>> {
+    if (orders.length === 0) return new Map();
+    const created = await db.order.createManyAndReturn({
+      data: orders.map((o) => ({ ...o.order, businessId })),
+      select: { id: true, orderNo: true },
+    });
+    const idByNo = new Map(created.map((o) => [o.orderNo, o.id]));
+    await db.orderItem.createMany({
+      data: orders.flatMap((o) => o.items.map((i) => ({ ...i, businessId, orderId: idByNo.get(o.order.orderNo)! }))),
+    });
+    await db.orderStatusHistory.createMany({
+      data: orders.map((o) => ({
+        orderId: idByNo.get(o.order.orderNo)!,
+        businessId,
+        fromStatus: null,
+        toStatus: o.order.status,
+        changedById,
+      })),
+    });
+    return idByNo;
+  }
+
+  /** Deletes the business's orders that this import created, in one statement; items and history cascade. */
+  deleteByImport(businessId: string, importId: string, db: Tx): Promise<number> {
+    return db.$executeRaw`
+      DELETE FROM orders WHERE "businessId" = ${businessId}::uuid AND "importId" = ${importId}::uuid`;
   }
 
   update(orderId: string, data: Prisma.OrderUncheckedUpdateInput, db: Tx) {

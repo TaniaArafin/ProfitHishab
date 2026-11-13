@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { newAccessEnd, type AdminAccessInput, type AdminBusinessDto, type AdminResetLinkDto } from '@ph/shared';
+import type { Prisma } from '@prisma/client';
+import { newAccessEnd, type AdminAccessInput, type AdminAction, type AdminBusinessDto, type AdminResetLinkDto } from '@ph/shared';
+import type { Tx } from '../../common/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { PasswordResetService } from '../auth/password-reset.service';
 import { BusinessService } from '../business/business.service';
@@ -59,6 +61,17 @@ export class AdminService {
       await this.repo.logAction({ adminUserId, businessId, action: 'block', details: { reason } }, tx);
     });
     return this.show(businessId, now);
+  }
+
+  /**
+   * Writes one admin_actions row inside another module's transaction (billing confirm and reject),
+   * so the history and the change commit or roll back together.
+   */
+  async recordAction(
+    entry: { adminUserId: string; businessId: string; action: AdminAction; details: Prisma.InputJsonObject },
+    tx: Tx,
+  ): Promise<void> {
+    await this.repo.logAction(entry, tx);
   }
 
   /** The owner can log in again (their old sessions stay ended). */

@@ -10,7 +10,7 @@ import { AdminService } from './admin.service';
   imports: [AuthModule, BusinessModule],
   controllers: [AdminController],
   providers: [AdminRepository, AdminService, AdminGuard],
-  // For the admin:grant script.
-  exports: [AdminService],
+  // AdminService: the admin:grant script and billing's admin_actions rows. AdminGuard: billing's admin routes.
+  exports: [AdminService, AdminGuard],
 })
 export class AdminModule {}

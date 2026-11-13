@@ -97,6 +97,11 @@ jobs:
           # No mail service in CI: emails (password reset) are written to the log.
           MAIL_DRIVER: log
           ALLOW_LOG_MAIL_IN_PRODUCTION: 'true'
+          # Production refuses to start without a receiving number; the billing test needs one to show a method.
+          PAYMENT_BKASH_NUMBER: '01700000001'
+          # The e2e tests register 8 accounts per run (4 per project: 2 billing, 1 first-profit, 1 import), up to
+          # 16 with CI's one retry, from one IP; the default is 10 per 15 minutes.
+          REGISTER_LIMIT_PER_15_MINUTES: '100'
         run: npm run test:e2e
 
       - name: Upload Playwright report

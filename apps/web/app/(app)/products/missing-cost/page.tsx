@@ -15,7 +15,7 @@ export default async function MissingCostPage() {
       <PageHeader
         icon={TriangleAlert}
         title="Fix missing costs"
-        description="Products with a cost of 0 make your profit look higher than it is."
+        description="Products with a cost of 0 make your profit look higher than it is. A cost you add here counts for new orders only; past orders, including imported ones, keep a cost of 0."
       />
       {data.length === 0 ? (
         <EmptyState

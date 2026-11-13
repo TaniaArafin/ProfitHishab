@@ -191,6 +191,11 @@ export class AuthService {
     await this.repo.revokeBusinessSessions(businessId, db);
   }
 
+  /** Billing receipts: where to email the business owner; null when they have no email. */
+  ownerEmail(businessId: string, db?: Tx): Promise<string | null> {
+    return this.repo.ownerEmail(businessId, db);
+  }
+
   /**
    * `npm run admin:grant`: makes the user with this email or phone a platform admin (or removes it).
    * Returns their user id, or null when no user has that identifier.

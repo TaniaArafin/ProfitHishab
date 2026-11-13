@@ -8,7 +8,13 @@ export const dynamic = 'force-dynamic';
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const { data: me } = await apiGet<{ data: Me }>('/auth/me');
   return (
-    <AppShell businessName={me.business.name} userName={me.user.name} isAdmin={me.user.isPlatformAdmin}>
+    <AppShell
+      businessName={me.business.name}
+      userName={me.user.name}
+      isAdmin={me.user.isPlatformAdmin}
+      trialEndsAt={me.business.trialEndsAt}
+      paid={me.business.firstPaidAt !== null}
+    >
       {children}
     </AppShell>
   );

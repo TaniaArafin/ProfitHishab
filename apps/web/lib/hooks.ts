@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { normalizePhone, type CustomerProfileDto, type ProductDto } from '@ph/shared';
-import { api } from './client-api';
+import { normalizePhone, type CustomerProfileDto, type ImportRowDto, type ImportRowStatus, type ProductDto } from '@ph/shared';
+import { api, type ApiError } from './client-api';
 
 /**
  * Data-fetching hooks for client components. Each effect ignores a response that
@@ -78,4 +78,40 @@ export function useCountdown(): [number, (seconds: number) => void] {
     setEndsAt(t + seconds * 1000);
   };
   return [endsAt === null ? 0 : Math.max(0, Math.ceil((endsAt - now) / 1000)), start];
+}
+
+export interface ImportRowsPage {
+  rows: ImportRowDto[];
+  total: number;
+}
+
+/** One page of an import's checked rows with this status; `undefined` while loading. */
+export function useImportRows(
+  importId: string,
+  status: ImportRowStatus,
+  page: number,
+  perPage = 25,
+): { data: ImportRowsPage | undefined; error: ApiError | null } {
+  const key = `${importId}|${status}|${page}|${perPage}`;
+  const [state, setState] = useState<{ key: string; data?: ImportRowsPage; error: ApiError | null } | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    void api<ImportRowDto[]>('GET', `/imports/${importId}/rows?status=${status}&page=${page}&perPage=${perPage}`).then((res) => {
+      if (ignore) return;
+      if (res.ok) {
+        const meta = res.body.meta as { total?: number } | undefined;
+        setState({ key, data: { rows: res.data, total: meta?.total ?? res.data.length }, error: null });
+      } else {
+        setState({ key, error: res.error });
+      }
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [key, importId, status, page, perPage]);
+
+  // Derived during render: rows for another tab or page are never shown.
+  if (state?.key !== key) return { data: undefined, error: null };
+  return { data: state.data, error: state.error };
 }

@@ -20,3 +20,6 @@ if (process.env.TEST_TYPESENSE_URL) {
   process.env.TYPESENSE_API_KEY = process.env.TEST_TYPESENSE_API_KEY ?? 'profithishab-dev-key';
   process.env.TYPESENSE_COLLECTION = 'products_test';
 }
+// Receiving numbers for the billing page (both methods on).
+process.env.PAYMENT_BKASH_NUMBER = '01700000001';
+process.env.PAYMENT_NAGAD_NUMBER = '01800000001';

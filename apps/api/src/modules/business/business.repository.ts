@@ -44,6 +44,11 @@ export class BusinessRepository {
     return db.business.update({ where: { id: businessId }, data, select: { id: true } });
   }
 
+  /** Sets firstPaidAt unless it is already set: the first payment is kept. */
+  async markPaid(businessId: string, at: Date, db: Tx): Promise<void> {
+    await db.business.updateMany({ where: { id: businessId, firstPaidAt: null }, data: { firstPaidAt: at } });
+  }
+
   /** Atomically reserves the next human order number for the business. */
   async reserveOrderNo(businessId: string, db: Tx): Promise<number> {
     const b = await db.business.update({
@@ -54,8 +59,22 @@ export class BusinessRepository {
     return b.nextOrderNo - 1;
   }
 
+  /** Reserves `count` consecutive order numbers in one UPDATE … RETURNING; returns the first. */
+  async reserveOrderNos(businessId: string, count: number, db: Tx): Promise<number> {
+    const [row] = await db.$queryRaw<[{ next: number }]>`
+      UPDATE businesses SET "nextOrderNo" = "nextOrderNo" + ${count}::int, "updatedAt" = now()
+      WHERE id = ${businessId}::uuid
+      RETURNING "nextOrderNo" AS next`;
+    return row.next - count;
+  }
+
   allCouriers(businessId: string) {
     return this.prisma.courier.findMany({ where: { businessId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  /** Id and name of every courier of the business, oldest first (inactive ones too). */
+  courierNames(businessId: string, db: Tx = this.prisma): Promise<Array<{ id: string; name: string }>> {
+    return db.courier.findMany({ where: { businessId }, select: { id: true, name: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
   }
 
   findCourier(businessId: string, courierId: string, db: Tx = this.prisma) {

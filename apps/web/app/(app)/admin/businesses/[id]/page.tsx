@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { ArrowLeft, Building2 } from 'lucide-react';
 import Link from 'next/link';
-import type { AdminActionDto, AdminBusinessDto } from '@ph/shared';
+import { formatTaka, type AdminActionDto, type AdminBusinessDto } from '@ph/shared';
 import { PageHeader } from '@/components/ui';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { ResetLinkButton } from './ResetLinkButton';
 
 export const metadata: Metadata = { title: 'Business · Admin' };
 
+const num = (v: unknown) => (typeof v === 'number' ? String(v) : '?');
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 
 /** One line of history, in words. */
@@ -34,6 +35,10 @@ function describe(a: AdminActionDto): string {
       return 'Unblocked';
     case 'reset_link':
       return 'Created a password link';
+    case 'confirm_payment':
+      return `Confirmed a payment of ${typeof d.amount === 'number' ? formatTaka(d.amount) : '—'} for ${num(d.months)} month${d.months === 1 ? '' : 's'}${str(d.to) ? `, access until ${formatDate(str(d.to))}` : ''}`;
+    case 'reject_payment':
+      return `Rejected a payment${str(d.reason) ? `: ${str(d.reason)}` : ''}`;
   }
 }
 

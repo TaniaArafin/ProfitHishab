@@ -1,5 +1,19 @@
-import type { AccessStatus, AdminAction, ExpenseKind, OrderStatus, PaymentMethod, ProductStatus } from './enums';
+import type {
+  AccessStatus,
+  AdminAction,
+  BillingMethod,
+  BillingPaymentStatus,
+  ExpenseKind,
+  ImportRowReason,
+  ImportRowStatus,
+  ImportStatus,
+  ImportTarget,
+  OrderStatus,
+  PaymentMethod,
+  ProductStatus,
+} from './enums';
 import type { Period } from './dates';
+import type { ImportMapping } from './schemas';
 
 /** Response shapes shared by the API and the web app. Money is integer poisha. */
 
@@ -45,6 +59,8 @@ export interface BusinessDto {
   defaultPackagingCost: number;
   /** ISO time the free trial ends; writes are refused after it. Null = no limit (early access). */
   trialEndsAt: string | null;
+  /** ISO time of the first confirmed payment; null until the seller has paid once. */
+  firstPaidAt: string | null;
 }
 
 export interface CourierDto {
@@ -295,4 +311,95 @@ export interface AdminBusinessDto extends AdminBusinessListItemDto {
 export interface AdminResetLinkDto {
   url: string;
   expiresAt: string;
+}
+
+// ── Billing ────────────────────────────────────────────────────────────
+
+export interface PaymentDto {
+  id: string;
+  method: BillingMethod;
+  senderNumber: string;
+  transactionId: string;
+  months: number;
+  /** Poisha. */
+  amount: number;
+  status: BillingPaymentStatus;
+  rejectReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  /** End of the period this payment paid for; null until confirmed (and for unlimited businesses). */
+  periodTo: string | null;
+}
+
+/** GET /billing */
+export interface BillingDto {
+  status: AccessStatus;
+  /** ISO end of access; null = unlimited. */
+  accessEndsAt: string | null;
+  daysLeft: number | null;
+  /** Poisha per month. */
+  pricePerMonth: number;
+  /** Only the methods with a receiving number configured. */
+  methods: { method: BillingMethod; number: string }[];
+  monthOptions: number[];
+  pending: PaymentDto | null;
+  /** Newest 20. */
+  payments: PaymentDto[];
+  /** ISO time of the first confirmed payment; null until the seller has paid once. */
+  firstPaidAt: string | null;
+}
+
+/** GET /admin/payments */
+export interface AdminPaymentDto extends PaymentDto {
+  business: { id: string; name: string };
+  submittedBy: string | null;
+  reviewedBy: string | null;
+}
+
+export interface ImportDto {
+  id: string;
+  fileName: string;
+  status: ImportStatus;
+  createdAt: string;
+  headers: string[];
+  /** The first 5 data rows, keyed by header. */
+  sampleRows: Record<string, string>[];
+  mapping: ImportMapping | null;
+  suggestedColumns: Partial<Record<ImportTarget, string>>;
+  statusValues: { value: string; count: number; suggested: OrderStatus | null }[];
+  counts: { total: number; valid: number; duplicate: number; invalid: number; orders: number };
+  importedOrders: number;
+  missingCostProducts: number;
+}
+
+export interface ImportListItemDto {
+  id: string;
+  fileName: string;
+  status: ImportStatus;
+  createdAt: string;
+  importedOrders: number;
+  canUndo: boolean;
+}
+
+export interface ImportRowDto {
+  rowNumber: number;
+  status: ImportRowStatus;
+  reasons: ImportRowReason[];
+  warnings: string[];
+  raw: Record<string, string>;
+}
+
+export interface ImportCommitResultDto {
+  ordersCreated: number;
+  customersCreated: number;
+  productsCreated: number;
+  missingCostProducts: number;
+  from: string;
+  to: string;
+}
+
+export interface ImportUndoResultDto {
+  ordersDeleted: number;
+  customersDeleted: number;
+  productsDeleted: number;
 }

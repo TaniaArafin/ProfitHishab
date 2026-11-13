@@ -216,5 +216,39 @@ describe('ProfitHishab API (e2e)', () => {
     expect((await intruder.get('/orders')).body.meta.total).toBe(0);
     expect((await intruder.get('/products')).body.meta.total).toBe(0);
     expect((await intruder.get('/customers')).body.meta.total).toBe(0);
+
+    const payment = { method: 'bkash', months: 1, senderNumber: '01712345678', transactionId: 'TENANT0001' };
+    expect((await owner.send('post', '/billing/payments', payment)).status).toBe(201);
+    const billing = (await intruder.get('/billing')).body.data;
+    expect(billing.pending).toBeNull();
+    expect(billing.payments).toEqual([]);
+    expect((await intruder.get('/admin/payments')).status).toBe(404);
+
+    // imports, import_rows (sampleRows on GET /imports/:id) and import_mappings
+    const csv = Buffer.from('Mobile,Item,Qty,Price\n01712345678,Secret Saree,1,1000\n');
+    const upload = await owner.upload('/imports', 'file', csv, 'orders.csv');
+    expect(upload.status).toBe(201);
+    const importId = upload.body.data.id;
+    const columns = { phone: 'Mobile', product: 'Item', quantity: 'Qty', sellingPrice: 'Price' };
+    expect((await owner.send('put', `/imports/${importId}/mapping`, { columns })).status).toBe(200);
+    expect((await intruder.get(`/imports/${importId}`)).status).toBe(404);
+    expect((await intruder.send('put', `/imports/${importId}/mapping`, { columns })).status).toBe(404);
+    expect((await owner.send('post', `/imports/${importId}/validate`)).status).toBe(200);
+    expect((await intruder.send('post', `/imports/${importId}/validate`)).status).toBe(404);
+    expect((await intruder.get(`/imports/${importId}/rows`)).status).toBe(404);
+    expect((await intruder.get(`/imports/${importId}/rejected.csv`)).status).toBe(404);
+    expect((await intruder.get('/imports')).body.meta.total).toBe(0);
+    expect((await intruder.send('post', `/imports/${importId}/commit`)).status).toBe(404);
+    const committed = await owner.send('post', `/imports/${importId}/commit`);
+    expect(committed.body.data).toMatchObject({ ordersCreated: 1, productsCreated: 0 }); // the owner's Secret Saree
+    expect((await intruder.send('post', `/imports/${importId}/undo`)).status).toBe(404);
+    expect((await owner.get(`/imports/${importId}`)).body.data.status).toBe('imported');
+    const theirs = await intruder.upload('/imports', 'file', csv, 'orders.csv');
+    expect(theirs.body.data).toMatchObject({ status: 'uploaded', mapping: null });
+    // The same phone and product name in another business: their own customer and product, not the owner's.
+    expect((await intruder.send('put', `/imports/${theirs.body.data.id}/mapping`, { columns })).status).toBe(200);
+    expect((await intruder.send('post', `/imports/${theirs.body.data.id}/validate`)).body.data.counts.valid).toBe(1);
+    const own = await intruder.send('post', `/imports/${theirs.body.data.id}/commit`);
+    expect(own.body.data).toMatchObject({ ordersCreated: 1, customersCreated: 1, productsCreated: 1 });
   });
 });

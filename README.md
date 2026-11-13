@@ -31,6 +31,10 @@ Forgot password emails a reset link. In development `MAIL_DRIVER=log` prints the
 
 **Admin panel** (`/admin`, ProfitHishab staff only): register an account normally, then `npm run build -w @ph/api && npm run admin:grant -w @ph/api -- <your email or phone>`. An "Admin" item appears in the menu. `--revoke` removes it.
 
+**Billing** (manual bKash/Nagad): set `PLAN_PRICE_TAKA` (price of one month in taka, default 499) and at least one receiving number, `PAYMENT_BKASH_NUMBER` and/or `PAYMENT_NAGAD_NUMBER` (`01XXXXXXXXX`), in `apps/api/.env` (production refuses to start with neither). A seller whose trial is ending sees a banner, opens `/billing`, sends the money and submits the TrxID. An admin opens `/admin/payments`, checks the bKash/Nagad statement, and confirms (adds 30 days per month paid, a receipt email goes out) or rejects with a reason.
+
+**Importing orders** (past orders from Excel or CSV): open `/imports/new` in the app and upload an `.xlsx`, `.xls` or `.csv` file, or download the template first (`/api/imports/template.xlsx` through the web app, `/v1/imports/template.xlsx` on the API). Limits: 5 MB, 5,000 rows, first sheet only. Check the suggested columns, preview what will be imported, then import; an import can be undone from `/imports`. Imported orders never change stock.
+
 If the API fails with Prisma `P1001` while the `db` container is healthy (OrbStack sometimes leaves the port unattached after `db:up`), run `docker compose restart db`.
 
 ## Checks
@@ -56,6 +60,8 @@ docker build -f apps/api/Dockerfile -t profithishab-api .                       
 docker build -f apps/api/Dockerfile --target migrate -t profithishab-migrate .  # one-off: prisma migrate deploy
 docker build -f apps/web/Dockerfile -t profithishab-web .                       # Next.js standalone server
 ```
+
+Production deploy: set `PAYMENT_BKASH_NUMBER` and/or `PAYMENT_NAGAD_NUMBER` to your own receiving numbers (the API refuses to start with neither; `.env.example` ships none), and `PLAN_PRICE_TAKA` if the price is not ৳499.
 
 ## Conventions
 

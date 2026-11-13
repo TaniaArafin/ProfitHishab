@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   BadgePercent,
   CheckCircle2,
+  FileUp,
   LayoutDashboard,
   Megaphone,
   Package,
@@ -359,6 +360,12 @@ function Onboarding() {
           <p className="font-bangla text-sm text-schist-100">Sales দেখবেন না — আসল Profit বুঝবেন।</p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Let&apos;s find your real profit</h1>
           <p className="mt-2 text-schist-200">Four steps, about ten minutes.</p>
+          <p className="mt-4 text-sm text-schist-200">Already have your past orders in Excel?</p>
+          <Button asChild variant="secondary" className="mt-2">
+            <Link href="/imports/new">
+              <FileUp className="h-4 w-4" /> Import your orders
+            </Link>
+          </Button>
         </div>
       </section>
       <ol className="grid gap-3 sm:gap-4 md:grid-cols-2">

@@ -10,13 +10,14 @@ import {
   type OrderDetailDto,
   type OrderStatus,
   type OrderUpdateInput,
+  type PaymentMethod,
 } from '@ph/shared';
 import { createHash } from 'node:crypto';
 import type { AuthContext } from '../../common/auth';
-import { fromDbDate, toDbDate } from '../../common/dates';
+import { fromDbDate, startOfDayIn, toDbDate } from '../../common/dates';
 import { RequestError } from '../../common/errors';
 import type { Tx } from '../../common/prisma.service';
-import { BusinessService } from '../business/business.service';
+import { BusinessService, type OrderDefaults } from '../business/business.service';
 import { CustomersService } from '../customers/customers.service';
 import { ProductsService } from '../products/products.service';
 import { ProductError } from '../products/products.errors';
@@ -25,6 +26,34 @@ import { toOrderDetail } from './orders.presenter';
 import { OrdersRepository, type NewOrderItem, type OrderWithItems } from './orders.repository';
 
 type ItemInput = OrderCreateInput['items'][number];
+
+/** A past order from a spreadsheet, with its customer, products and line costs already resolved. */
+export interface ImportedOrder {
+  groupKey: string;
+  orderNo: number;
+  customerId: string;
+  deliveryAddress: string | null;
+  orderDate: string;
+  externalRef: string | null;
+  /** The row fingerprint of an order without an Order ID, so a later re-import is caught (FR-IMP-06). */
+  dedupeHash: string | null;
+  status: OrderStatus;
+  paymentMethod: PaymentMethod;
+  courierId: string | null;
+  discount: number;
+  deliveryCharge: number;
+  /** Null: the courier's or business's default, as on a new order. */
+  courierCost: number | null;
+  items: Array<Omit<NewOrderItem, 'lineTotal'>>;
+}
+
+/**
+ * FR-PROD-07: imported orders never change stock. They are past sales whose stock was never taken,
+ * so no later status change or item edit may give it back or take it again.
+ */
+function movesStock(order: { source: string }): boolean {
+  return order.source !== 'import';
+}
 
 /**
  * Order use cases. Talks to other modules only through their public services
@@ -38,6 +67,86 @@ export class OrdersService {
     private readonly products: ProductsService,
     private readonly customers: CustomersService,
   ) {}
+
+  /**
+   * Which of these order IDs (externalRef) and line fingerprints (dedupeHash) the business's orders
+   * already have, so an import can mark those rows duplicate (FR-IMP-06). One query.
+   */
+  async existingImportKeys(
+    businessId: string,
+    refs: string[],
+    hashes: string[],
+    db?: Tx,
+  ): Promise<{ refs: Set<string>; hashes: Set<string> }> {
+    const found = { refs: new Set<string>(), hashes: new Set<string>() };
+    if (refs.length === 0 && hashes.length === 0) return found;
+    const wantedRefs = new Set(refs);
+    const wantedHashes = new Set(hashes);
+    for (const row of await this.repo.importKeysIn(businessId, [...wantedRefs], [...wantedHashes], db)) {
+      if (row.externalRef !== null && wantedRefs.has(row.externalRef)) found.refs.add(row.externalRef);
+      if (row.dedupeHash !== null && wantedHashes.has(row.dedupeHash)) found.hashes.add(row.dedupeHash);
+    }
+    return found;
+  }
+
+  /**
+   * FR-IMP-10: writes an import's orders, items and first status rows in three INSERTs. Costs not in
+   * the file come from the same defaults a new order gets (FR-BIZ-03); delivered and returned orders
+   * are stamped at the start of their order day. Stock is not moved: these are past orders (FR-PROD-07).
+   * Returns each group key's order id.
+   */
+  async insertImported(
+    businessId: string,
+    orders: ReadonlyArray<ImportedOrder>,
+    importId: string,
+    createdById: string,
+    db: Tx,
+  ): Promise<Map<string, string>> {
+    // One defaults lookup per courier used (a handful), not per order.
+    const defaults = new Map<string | null, OrderDefaults>();
+    for (const courierId of new Set(orders.map((o) => o.courierId))) {
+      defaults.set(courierId, await this.business.orderDefaults(businessId, courierId, db));
+    }
+
+    const rows = orders.map((o) => {
+      const d = defaults.get(o.courierId)!;
+      const items = o.items.map((i) => ({ ...i, lineTotal: i.unitPrice * i.quantity }));
+      const dayStart = startOfDayIn(o.orderDate, d.timezone);
+      return {
+        order: {
+          orderNo: o.orderNo,
+          customerId: o.customerId,
+          courierId: o.courierId ?? d.courier?.id ?? null,
+          status: o.status,
+          paymentMethod: o.paymentMethod,
+          orderDate: toDbDate(o.orderDate),
+          deliveryAddress: o.deliveryAddress,
+          ...this.totals(items, o.discount, o.deliveryCharge),
+          courierCost: o.courierCost ?? d.courierCost,
+          packagingCost: d.packagingCost,
+          returnCost: d.returnCost,
+          source: 'import',
+          importId,
+          externalRef: o.externalRef,
+          dedupeHash: o.dedupeHash,
+          deliveredAt: o.status === 'delivered' ? dayStart : null,
+          returnedAt: o.status === 'returned' ? dayStart : null,
+          createdById,
+        },
+        items,
+      };
+    });
+    const idByNo = await this.repo.createMany(businessId, rows, createdById, db);
+    return new Map(orders.map((o) => [o.groupKey, idByNo.get(o.orderNo)!]));
+  }
+
+  /**
+   * FR-IMP-12: deletes every order this import created, in one statement (items and status history
+   * cascade). Stock is not touched: imported orders never moved it. Returns how many were deleted.
+   */
+  deleteImported(businessId: string, importId: string, db: Tx): Promise<number> {
+    return this.repo.deleteByImport(businessId, importId, db);
+  }
 
   async show(businessId: string, orderId: string): Promise<OrderDetailDto> {
     const row = await this.repo.findDetail(businessId, orderId);
@@ -74,7 +183,7 @@ export class OrdersService {
     const { businessId } = auth;
     await this.repo.transaction(async (tx) => {
       const order = await this.lockOne(businessId, orderId, tx);
-      const keepsStock = holdsStock(order.status as OrderStatus);
+      const keepsStock = movesStock(order) && holdsStock(order.status as OrderStatus);
 
       let items: NewOrderItem[] = order.items;
       if (input.items) {
@@ -129,6 +238,10 @@ export class OrdersService {
 
   private async insert(auth: AuthContext, input: OrderCreateInput, idempotency: { key: string; hash: string }, tx: Tx): Promise<string> {
     const { businessId } = auth;
+    // Lock order, shared with ImportsService.commit: the business row (order number) first, then
+    // customers and products. The other way round, a new customer's phone and the business row
+    // could be held crosswise by an order and an import, and deadlock.
+    const orderNo = await this.business.reserveOrderNo(businessId, tx);
     const defaults = await this.business.orderDefaults(businessId, input.courierId, tx);
     const customer = await this.customers.findOrCreateForOrder(businessId, input.customer, tx);
     const orderDate = input.orderDate ?? todayIn(defaults.timezone);
@@ -138,7 +251,7 @@ export class OrdersService {
     const order = await this.repo.create(
       businessId,
       {
-        orderNo: await this.business.reserveOrderNo(businessId, tx),
+        orderNo,
         customerId: customer.id,
         courierId: defaults.courier?.id ?? null,
         status,
@@ -172,12 +285,13 @@ export class OrdersService {
     return order;
   }
 
-  /** Moves locked orders to `to`, adjusting stock once for all of them and writing history. */
+  /** Moves locked orders to `to`, adjusting stock once for all of them (imported orders excepted) and writing history. */
   private async applyStatus(auth: AuthContext, orders: OrderWithItems[], to: OrderStatus, tx: Tx): Promise<void> {
     if (orders.length === 0) return;
     const now = new Date();
-    const restock = orders.filter((o) => holdsStock(o.status as OrderStatus) && !holdsStock(to)).flatMap((o) => o.items);
-    const unstock = orders.filter((o) => !holdsStock(o.status as OrderStatus) && holdsStock(to)).flatMap((o) => o.items);
+    const stocked = orders.filter(movesStock);
+    const restock = stocked.filter((o) => holdsStock(o.status as OrderStatus) && !holdsStock(to)).flatMap((o) => o.items);
+    const unstock = stocked.filter((o) => !holdsStock(o.status as OrderStatus) && holdsStock(to)).flatMap((o) => o.items);
     await this.products.moveStock(restock, +1, tx);
     await this.products.moveStock(unstock, -1, tx);
 

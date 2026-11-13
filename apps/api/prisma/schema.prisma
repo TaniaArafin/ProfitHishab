@@ -8,22 +8,24 @@ datasource db {
 }
 
 model User {
-  id              String           @id @default(uuid(7)) @db.Uuid
-  name            String
-  email           String?          @unique
-  phone           String?          @unique
+  id                String           @id @default(uuid(7)) @db.Uuid
+  name              String
+  email             String?          @unique
+  phone             String?          @unique
   /// Set when the phone was confirmed with an SMS code at registration. Null for early-access accounts.
-  phoneVerifiedAt DateTime?
+  phoneVerifiedAt   DateTime?
   /// Internal ProfitHishab staff: may use /admin. Set only with `npm run admin:grant`, never through the API.
-  isPlatformAdmin Boolean          @default(false)
-  passwordHash    String
-  locale          String           @default("bn")
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  sessions        Session[]
-  memberships     BusinessMember[]
-  passwordResets  PasswordReset[]
-  adminActions    AdminAction[]
+  isPlatformAdmin   Boolean          @default(false)
+  passwordHash      String
+  locale            String           @default("bn")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  sessions          Session[]
+  memberships       BusinessMember[]
+  passwordResets    PasswordReset[]
+  adminActions      AdminAction[]
+  paymentsSubmitted Payment[]        @relation("PaymentSubmittedBy")
+  paymentsReviewed  Payment[]        @relation("PaymentReviewedBy")
 
   @@map("users")
 }
@@ -66,6 +68,8 @@ model Business {
   /// Blocked by a platform admin: nobody in the business can log in. Null = not blocked.
   blockedAt            DateTime?
   blockedReason        String?
+  /// When a payment was first confirmed; paying sellers are not told their "free trial" is ending.
+  firstPaidAt          DateTime?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   members              BusinessMember[]
@@ -77,8 +81,10 @@ model Business {
   expenseCategories    ExpenseCategory[]
   expenses             Expense[]
   imports              Import[]
+  importMappings       ImportMapping[]
   trialClaims          TrialClaim[]
   adminActions         AdminAction[]
+  payments             Payment[]
 
   @@map("businesses")
 }
@@ -305,6 +311,8 @@ model Import {
   status        String      @default("uploaded")
   mapping       Json?
   statusMapping Json?
+  headers       Json        @default("[]")
+  headersKey    String?
   totalRows     Int         @default(0)
   validRows     Int         @default(0)
   duplicateRows Int         @default(0)
@@ -331,10 +339,25 @@ model ImportRow {
   status     String
   errors     Json?
   orderId    String? @db.Uuid
+  groupKey   String?
   import     Import  @relation(fields: [importId], references: [id], onDelete: Cascade)
 
+  @@unique([importId, rowNumber])
   @@index([importId, status])
   @@map("import_rows")
+}
+
+/// The column mapping a seller last used for a given set of file headers, offered again next time.
+model ImportMapping {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @db.Uuid
+  headersKey String
+  mapping    Json
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, headersKey])
+  @@map("import_mappings")
 }
 
 /// One-time SMS codes that prove a seller owns a phone number before registering.
@@ -381,7 +404,7 @@ model AdminAction {
   id          String    @id @default(uuid(7)) @db.Uuid
   adminUserId String?   @db.Uuid
   businessId  String?   @db.Uuid
-  /// set_access | block | unblock | reset_link (CHECK constraint, ADMIN_ACTIONS in shared enums)
+  /// set_access | block | unblock | reset_link | confirm_payment | reject_payment (CHECK constraint, ADMIN_ACTIONS in shared enums)
   action      String
   /// What changed, e.g. {"from": "...", "to": "..."} or {"reason": "..."}
   details     Json      @default("{}")
@@ -391,4 +414,37 @@ model AdminAction {
 
   @@index([businessId, createdAt])
   @@map("admin_actions")
+}
+
+/// A seller's manual bKash/Nagad payment for more access, checked by a platform admin.
+/// CHECKs and two partial unique indexes are in the migration SQL (Prisma cannot express a partial index):
+/// "payments_one_pending_per_business" (one pending per business) and "payments_method_transactionId_active_key"
+/// (a TrxID is unique per method among pending and confirmed payments; a rejected payment releases it).
+model Payment {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  businessId    String    @db.Uuid
+  submittedById String?   @db.Uuid
+  /// bkash | nagad (CHECK, BILLING_METHODS in shared enums)
+  method        String
+  senderNumber  String
+  /// Uppercase TrxID from the SMS; unique per method among pending and confirmed payments of every business.
+  transactionId String
+  /// 1 | 3 | 6 | 12 (CHECK)
+  months        Int
+  /// Poisha, price x months at submit time. > 0 (CHECK)
+  amount        Int
+  /// pending | confirmed | rejected (CHECK, BILLING_PAYMENT_STATUSES in shared enums)
+  status        String    @default("pending")
+  rejectReason  String?
+  reviewedById  String?   @db.Uuid
+  reviewedAt    DateTime?
+  periodFrom    DateTime?
+  periodTo      DateTime?
+  createdAt     DateTime  @default(now())
+  business      Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  submittedBy   User?     @relation("PaymentSubmittedBy", fields: [submittedById], references: [id], onDelete: SetNull)
+  reviewedBy    User?     @relation("PaymentReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("payments")
 }

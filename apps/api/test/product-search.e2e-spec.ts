@@ -52,6 +52,33 @@ withTypesense('Product search on Typesense (e2e)', () => {
     expect(await names('jute')).toEqual([]);
   });
 
+  it('drops the products an import created when the import is undone', async () => {
+    const XLSX = await import('xlsx');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ['Mobile', 'Item', 'Qty', 'Price'],
+        ['01712345678', 'Muslin Dupatta', 1, 900],
+      ]),
+      'Orders',
+    );
+    const file = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    const up = await seller.upload('/imports', 'file', file, 'orders.xlsx');
+    const id = up.body.data.id as string;
+    await seller.send('put', `/imports/${id}/mapping`, {
+      columns: { phone: 'Mobile', product: 'Item', quantity: 'Qty', sellingPrice: 'Price' },
+    });
+    await seller.send('post', `/imports/${id}/validate`);
+    expect((await seller.send('post', `/imports/${id}/commit`)).status).toBe(200);
+    const businessId = (await seller.get('/auth/me')).body.data.business.id as string;
+    const search = app.get(ProductSearch);
+    expect(await search.ids(businessId, 'muslin')).toHaveLength(1);
+
+    expect((await seller.send('post', `/imports/${id}/undo`)).body.data.productsDeleted).toBe(1);
+    expect(await search.ids(businessId, 'muslin')).toEqual([]); // the index itself, not just the Postgres filter
+  });
+
   it("never returns another business's products", async () => {
     const other = await registerSeller(app, 'search-other@example.com');
     expect(await names('saree', other)).toEqual([]);

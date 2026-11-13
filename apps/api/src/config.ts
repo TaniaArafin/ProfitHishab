@@ -1,10 +1,16 @@
 import { z } from 'zod';
+import type { BillingMethod } from '@ph/shared';
+
+const receivingNumber = z
+  .string()
+  .regex(/^01[3-9]\d{8}$/, 'must be 11 digits like 01XXXXXXXXX')
+  .optional();
 
 /**
  * The only place that reads process.env (laravel-patterns: config-never-env-outside-config).
  * Validated once at startup so a missing or malformed variable fails fast, not mid-request.
  */
-const schema = z
+export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
@@ -75,6 +81,11 @@ const schema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+    /** Price of one month, in taka (config() turns it into poisha). */
+    PLAN_PRICE_TAKA: z.coerce.number().int().min(1).max(100_000).default(499),
+    /** Where sellers send money. A method is offered only when its number is set. */
+    PAYMENT_BKASH_NUMBER: receivingNumber,
+    PAYMENT_NAGAD_NUMBER: receivingNumber,
   })
   .superRefine((env, ctx) => {
     if (env.OTP_REQUIRED && env.NODE_ENV === 'production' && !env.ALLOW_INSECURE_OTP_IN_PRODUCTION) {
@@ -91,6 +102,13 @@ const schema = z
         path: ['MAIL_DRIVER'],
         message:
           'production needs MAIL_DRIVER=smtp (log only writes emails to the log); set ALLOW_LOG_MAIL_IN_PRODUCTION=true only for test runs',
+      });
+    }
+    if (env.NODE_ENV === 'production' && !env.PAYMENT_BKASH_NUMBER && !env.PAYMENT_NAGAD_NUMBER) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['PAYMENT_BKASH_NUMBER'],
+        message: 'production needs at least one receiving number',
       });
     }
     if (env.MAIL_DRIVER === 'smtp' && !env.SMTP_HOST) {
@@ -116,13 +134,15 @@ export type AppConfig = Readonly<{
     from: string;
     smtp: { host: string; port: number; secure: boolean; user: string | null; pass: string | null } | null;
   };
+  /** pricePerMonth in poisha; numbers only for the methods that are configured. */
+  billing: { pricePerMonth: number; numbers: Partial<Record<BillingMethod, string>> };
 }>;
 
 let cached: AppConfig | null = null;
 
 export function config(): AppConfig {
   if (cached) return cached;
-  const parsed = schema.safeParse(process.env);
+  const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid environment configuration: ${problems}`);
@@ -151,6 +171,13 @@ export function config(): AppConfig {
         env.MAIL_DRIVER === 'smtp' && env.SMTP_HOST
           ? { host: env.SMTP_HOST, port: env.SMTP_PORT, secure: env.SMTP_SECURE, user: env.SMTP_USER ?? null, pass: env.SMTP_PASS ?? null }
           : null,
+    },
+    billing: {
+      pricePerMonth: env.PLAN_PRICE_TAKA * 100,
+      numbers: {
+        ...(env.PAYMENT_BKASH_NUMBER ? { bkash: env.PAYMENT_BKASH_NUMBER } : {}),
+        ...(env.PAYMENT_NAGAD_NUMBER ? { nagad: env.PAYMENT_NAGAD_NUMBER } : {}),
+      },
     },
   });
   return cached;

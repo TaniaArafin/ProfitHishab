@@ -56,4 +56,45 @@ export class CustomersService {
     );
     return { id: created.id, address: created.address };
   }
+
+  /**
+   * findOrCreateForOrder for a whole import, in a fixed number of statements: one select by phone,
+   * one INSERT for the new customers (tagged with the import), one UPDATE filling empty addresses,
+   * and a re-select. Several people with one phone are one customer (first non-empty name and address).
+   * Returns each phone's customer id and address.
+   */
+  async findOrCreateManyForImport(
+    businessId: string,
+    people: ReadonlyArray<{ phone: string; name: string | null; address: string | null }>,
+    importId: string,
+    db: Tx,
+  ): Promise<{ customers: Map<string, { id: string; address: string | null }>; created: number }> {
+    const byPhone = new Map<string, { phone: string; name: string | null; address: string | null }>();
+    for (const p of people) {
+      const seen = byPhone.get(p.phone);
+      const name = p.name?.trim() || null;
+      const address = p.address?.trim() || null;
+      if (!seen) byPhone.set(p.phone, { phone: p.phone, name, address });
+      else byPhone.set(p.phone, { phone: p.phone, name: seen.name ?? name, address: seen.address ?? address });
+    }
+    const phones = [...byPhone.keys()];
+    const existing = await this.repo.findByPhones(businessId, phones, db);
+    const known = new Set(existing.map((c) => c.phone));
+
+    const fresh = [...byPhone.values()].filter((p) => !known.has(p.phone)).map((p) => ({ ...p, name: p.name ?? p.phone }));
+    const created = await this.repo.createMany(businessId, fresh, importId, db);
+    const fills = existing.flatMap((c) => {
+      const address = byPhone.get(c.phone)?.address;
+      return address && !c.address ? [{ id: c.id, address }] : [];
+    });
+    await this.repo.fillMissingAddresses(businessId, fills, db);
+
+    const all = await this.repo.findByPhones(businessId, phones, db);
+    return { customers: new Map(all.map((c) => [c.phone, { id: c.id, address: c.address }])), created };
+  }
+
+  /** FR-IMP-12: deletes the customers this import created that no order uses (run after its orders are gone). */
+  deleteUnusedFromImport(businessId: string, importId: string, db: Tx): Promise<number> {
+    return this.repo.deleteUnusedFromImport(businessId, importId, db);
+  }
 }
