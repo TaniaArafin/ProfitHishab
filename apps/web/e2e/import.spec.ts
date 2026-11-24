@@ -53,15 +53,17 @@ test('a new seller imports the sample file and sees their profit', async ({ page
   });
 
   await test.step('upload the file', async () => {
+    // An old link to /imports/new opens the Imports page with the upload pop-up open.
     await page.goto('/imports/new');
-    await measure('/imports/new');
+    await expect(page.getByRole('dialog', { name: 'Import orders' })).toBeVisible();
+    await measure('/imports upload pop-up');
     await page.getByLabel(/Your file/).setInputFiles(sampleFile);
     await page.getByRole('button', { name: 'Upload and review' }).click();
     await expect(page).toHaveURL(/\/imports\/[0-9a-f-]{36}$/);
   });
 
   await test.step('recognised columns and statuses go straight to the preview', async () => {
-    await expect(page.getByText(/^Matched \d+ columns and 1 status$/)).toBeVisible();
+    await expect(page.getByText('Columns matched automatically.')).toBeVisible();
   });
 
   await test.step('the preview counts the rows', async () => {

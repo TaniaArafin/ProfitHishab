@@ -22,7 +22,7 @@ export default async function ImportPage({ params }: { params: Promise<{ id: str
         actions={
           <Button asChild variant="secondary">
             <Link href="/imports">
-              <ArrowLeft className="h-4 w-4" /> All imports
+              <ArrowLeft className="h-4 w-4" /> Import history
             </Link>
           </Button>
         }

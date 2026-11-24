@@ -48,7 +48,7 @@ const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
       { href: '/products', label: 'Products', icon: Package },
       { href: '/customers', label: 'Customers', icon: Users },
       { href: '/expenses', label: 'Expenses', icon: Wallet },
-      { href: '/imports', label: 'Import', icon: FileUp },
+      { href: '/imports', label: 'Import orders', icon: FileUp },
     ],
   },
   {

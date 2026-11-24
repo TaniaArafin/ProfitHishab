@@ -34,21 +34,24 @@ test('a seller fixes a wrong row on the preview and imports it', async ({ page }
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: /real profit/i })).toBeVisible();
 
-  await page.goto('/imports/new');
+  await page.goto('/imports');
+  await page.getByRole('button', { name: 'Import orders' }).click();
+  await expect(page.getByRole('dialog', { name: 'Import orders' })).toBeVisible();
   await page.getByLabel(/Your file/).setInputFiles(file);
   await page.getByRole('button', { name: 'Upload and review' }).click();
 
   await expect(page.getByRole('heading', { name: '1 row needs fixing' })).toBeVisible();
-  await expect(page.getByText('Phone number is not valid').locator('visible=true').first()).toBeVisible();
-  await page.getByRole('button', { name: 'Fix row 3: Phone 12345' }).locator('visible=true').first().click();
-  const row = page.getByRole('dialog', { name: 'Fix row 3' });
-  await expect(row.getByText('Enter a number like 017XXXXXXXX')).toBeVisible();
+  // The wrong value is a box right in its row, with the error under it.
+  const phoneBox = page.getByRole('textbox', { name: 'Phone, row 3' }).locator('visible=true').first();
+  await expect(phoneBox).toHaveValue('12345');
+  await expect(page.getByText('Phone “12345”: Enter a number like 017XXXXXXXX')).toBeVisible();
   if (isPhone) expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 
-  await row.getByLabel('Phone').fill('01912345678');
-  await row.getByRole('button', { name: 'Save row 3' }).click();
+  await phoneBox.fill('01912345678');
+  await phoneBox.press('Enter');
   await expect(page.getByRole('status').filter({ hasText: 'Row 3 fixed.' })).toBeVisible();
-  await expect(row).toHaveCount(0);
+  // The row is now ready: nothing is marked wrong any more.
+  await expect(page.getByText(/Enter a number like 017XXXXXXXX/)).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Import 2 Orders' }).click();
   await expect(page.getByText('2 orders imported')).toBeVisible();

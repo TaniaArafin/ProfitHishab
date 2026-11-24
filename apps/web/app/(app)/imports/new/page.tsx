@@ -1,15 +1,6 @@
-import type { Metadata } from 'next';
-import { FileUp } from 'lucide-react';
-import { PageHeader } from '@/components/ui';
-import { UploadStep } from './UploadStep';
+import { redirect } from 'next/navigation';
 
-export const metadata: Metadata = { title: 'Import orders' };
-
+/** The upload is a pop-up on the Imports page; old links land there with it open. */
 export default function NewImportPage() {
-  return (
-    <div className="flex flex-col gap-5">
-      <PageHeader icon={FileUp} title="Import orders" description="Bring in your past orders from Excel or CSV." />
-      <UploadStep />
-    </div>
-  );
+  redirect('/imports?upload=1');
 }

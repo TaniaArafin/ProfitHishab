@@ -44,7 +44,10 @@ export function ResultStep(props: { result: ImportCommitResultDto; seconds?: num
             )}
           </Button>
           <Button asChild variant="secondary">
-            <Link href="/imports">All imports</Link>
+            <Link href={result ? `/orders?from=${result.from}&to=${result.to}` : '/orders'}>View imported orders</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/imports">Import history</Link>
           </Button>
         </div>
       </Card>

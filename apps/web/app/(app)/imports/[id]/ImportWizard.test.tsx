@@ -202,13 +202,15 @@ describe('ImportWizard', () => {
     });
     render(<ImportWizard imp={checked} />);
 
-    expect(screen.getByText('Matched 5 columns and 1 status')).toBeInTheDocument();
+    // One short line instead of the full column list; the full match is on the Change columns step.
+    expect(screen.getByText('Columns matched automatically.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Matched \d+ columns/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Change columns' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Review orders' }));
     expect(await screen.findByText('What do these statuses mean?')).toBeInTheDocument();
   });
 
-  describe('fixing a wrong row in place', () => {
+  describe('fixing a wrong value right in its row', () => {
     const BAD: ImportRowDto = {
       rowNumber: 3,
       status: 'invalid',
@@ -223,12 +225,6 @@ describe('ImportWizard', () => {
     });
     let invalidRows: ImportRowDto[];
 
-    /** Clicking the row's red reason opens it in a window (table and phone card both render one in jsdom). */
-    async function openFix(n: number) {
-      fireEvent.click((await screen.findAllByRole('button', { name: new RegExp(`^Fix row ${n}: `) }))[0]);
-      return screen.getByRole('dialog', { name: `Fix row ${n}` });
-    }
-
     function serve(edit: () => unknown) {
       invalidRows = [BAD];
       api.mockImplementation((method, path) => {
@@ -238,61 +234,109 @@ describe('ImportWizard', () => {
       });
     }
 
-    it('lists the wrong rows with their problem, and Fix opens the row with each error under its field', async () => {
+    /** The table and the phone card both render in jsdom; the first is the table's. */
+    const cellInput = async (name: string) => (await screen.findAllByRole('textbox', { name }))[0];
+
+    it('shows each wrong value as a box in its row with the error under it, and nothing else to click', async () => {
       serve(() => ok({}));
       render(<ImportWizard imp={withInvalid(1, 5)} />);
-      expect(
-        (await screen.findAllByText('Phone number is not valid; Quantity must be a whole number of 1 or more')).length,
-      ).toBeGreaterThan(0);
+      const phone = await cellInput('Phone, row 3');
+      expect(phone).toHaveValue('12345');
+      expect(phone).toHaveAttribute('aria-invalid', 'true');
+      // The problem is one line under the row, naming the column and the value, across the whole row.
+      const message = screen.getByText('Phone “12345”: Enter a number like 017XXXXXXXX');
+      expect(message.closest('td')).toHaveAttribute('colspan');
+      expect(phone).toHaveAttribute('aria-describedby', message.closest('[id]')?.id);
+      expect(await cellInput('Qty, row 3')).toHaveValue('zero');
+      // Right values are editable too, but not marked; no Fix button and no pop-up.
+      expect(await cellInput('Product, row 3')).not.toHaveAttribute('aria-invalid');
+      expect(screen.queryByRole('button', { name: /Fix/ })).not.toBeInTheDocument();
+      // Every column of the file shows, under the file's own header; a column not imported says so.
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent);
+      expect(headers).not.toContain('Issue');
+      expect(headers).toEqual(expect.arrayContaining(['Row', 'Order ID', 'Phone', 'Product', 'Qty', 'Price', 'Statusnot imported']));
+      // One scrollable table on every screen size, with a hint that there is more to the side.
+      expect(screen.getAllByRole('table')).toHaveLength(1);
+      expect(screen.getByText('Scroll sideways to see all 6 columns.')).toBeInTheDocument();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Fix' })).not.toBeInTheDocument();
-      // The wrong value itself is marked and opens the same window.
-      expect(screen.getAllByRole('button', { name: 'Fix row 3: Phone 12345' })[0]).toHaveClass('border-loss');
-      const row = await openFix(3);
-      expect(within(row).getByLabelText('Phone')).toHaveValue('12345');
-      expect(within(row).getByLabelText('Phone')).toHaveAttribute('aria-invalid', 'true');
-      expect(within(row).getByLabelText('Phone')).toHaveFocus();
-      expect(within(row).getByText('Enter a number like 017XXXXXXXX')).toBeInTheDocument();
-      expect(within(row).getByText('Enter a whole number of 1 or more')).toBeInTheDocument();
-      expect(within(row).getByLabelText('Product')).not.toHaveAttribute('aria-invalid');
-      expect(within(row).getByRole('button', { name: 'Save row 3' })).toBeDisabled();
     });
 
-    it('saves only the changed cells, then counts the row as ready', async () => {
+    it('saves a value on Enter, then counts the row as ready', async () => {
       serve(() => {
         invalidRows = [];
         return ok({ import: withInvalid(0, 6), row: { ...BAD, status: 'valid', reasons: [], problems: {} } });
       });
       render(<ImportWizard imp={withInvalid(1, 5)} />);
-      const row = await openFix(3);
-      fireEvent.change(within(row).getByLabelText('Phone'), { target: { value: '01912345678' } });
-      fireEvent.change(within(row).getByLabelText('Quantity'), { target: { value: '2' } });
-      fireEvent.click(within(row).getByRole('button', { name: 'Save row 3' }));
+      const phone = await cellInput('Phone, row 3');
+      fireEvent.change(phone, { target: { value: '01912345678' } });
+      fireEvent.keyDown(phone, { key: 'Enter' });
 
       expect(await screen.findByRole('button', { name: 'Import 6 Orders' })).toBeEnabled();
-      expect(calls('PATCH', '/imports/imp1/rows/3')[0][2]).toEqual({ cells: { Phone: '01912345678', Qty: '2' } });
+      expect(calls('PATCH', '/imports/imp1/rows/3')[0][2]).toEqual({ cells: { Phone: '01912345678' } });
       expect(screen.getByRole('status')).toHaveTextContent('Row 3 fixed');
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-      await waitFor(() => expect(screen.queryAllByRole('button', { name: /^Fix row 3: / })).toHaveLength(0));
+      // The row stays where it is: its red border and error go, and it says it is fixed.
+      await waitFor(async () => expect(await cellInput('Phone, row 3')).not.toHaveAttribute('aria-invalid'));
+      expect(await cellInput('Phone, row 3')).toHaveValue('01912345678');
+      expect(screen.queryAllByText(/Enter a number like 017XXXXXXXX/)).toHaveLength(0);
+      expect(screen.getAllByText('Fixed, will be imported').length).toBeGreaterThan(0);
     });
 
-    it('keeps what was typed and shows the new error when a value is still wrong', async () => {
+    it('saves when the seller leaves the box, but not when nothing changed', async () => {
+      serve(() => ok({ import: withInvalid(1, 5), row: BAD }));
+      render(<ImportWizard imp={withInvalid(1, 5)} />);
+      const phone = await cellInput('Phone, row 3');
+      fireEvent.blur(phone);
+      expect(calls('PATCH', '/imports/imp1/rows/3')).toHaveLength(0);
+      fireEvent.change(phone, { target: { value: '01912345678' } });
+      fireEvent.blur(phone);
+      await waitFor(() => expect(calls('PATCH', '/imports/imp1/rows/3')).toHaveLength(1));
+    });
+
+    it('keeps the other wrong value with its error when one is fixed', async () => {
       const still = { ...BAD, raw: { ...BAD.raw, Phone: '01912345678' }, problems: { quantity: BAD.problems.quantity } };
       serve(() => {
         invalidRows = [still];
         return ok({ import: withInvalid(1, 5), row: still });
       });
       render(<ImportWizard imp={withInvalid(1, 5)} />);
-      const row = await openFix(3);
-      fireEvent.change(within(row).getByLabelText('Phone'), { target: { value: '01912345678' } });
-      fireEvent.click(within(row).getByRole('button', { name: 'Save row 3' }));
+      const phone = await cellInput('Phone, row 3');
+      fireEvent.change(phone, { target: { value: '01912345678' } });
+      fireEvent.keyDown(phone, { key: 'Enter' });
 
-      await waitFor(() => expect(within(row).queryByText('Enter a number like 017XXXXXXXX')).not.toBeInTheDocument());
-      expect(within(row).getByLabelText('Phone')).toHaveValue('01912345678');
-      expect(within(row).getByText('Enter a whole number of 1 or more')).toBeInTheDocument();
+      await waitFor(async () => expect(await cellInput('Phone, row 3')).not.toHaveAttribute('aria-invalid'));
+      expect(await cellInput('Phone, row 3')).toHaveValue('01912345678');
+      expect(await cellInput('Qty, row 3')).toHaveValue('zero');
+      expect(await cellInput('Qty, row 3')).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('Qty “zero”: Enter a whole number of 1 or more')).toBeInTheDocument();
     });
 
-    it('lets the seller change a duplicate row and import it', async () => {
+    it('shows a failed save under the value', async () => {
+      serve(() => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: 'Could not reach the server.' } }));
+      render(<ImportWizard imp={withInvalid(1, 5)} />);
+      const phone = await cellInput('Phone, row 3');
+      fireEvent.change(phone, { target: { value: '01912345678' } });
+      fireEvent.keyDown(phone, { key: 'Enter' });
+      expect((await screen.findAllByText('Could not reach the server.')).length).toBeGreaterThan(0);
+      expect(phone).toHaveValue('01912345678');
+    });
+
+    it('lets the seller change any value of a ready row in place too', async () => {
+      const READY: ImportRowDto = { ...ROW, rowNumber: 2 };
+      api.mockImplementation((method, path) => {
+        if (method === 'PATCH') return ok({ import: VALIDATED, row: { ...READY, raw: { ...READY.raw, Qty: '3' } } });
+        if (method === 'GET' && path.includes('status=valid')) return ok([READY], { meta: { total: 1 } });
+        return ok([], { meta: { total: 0 } });
+      });
+      render(<ImportWizard imp={{ ...VALIDATED, counts: { total: 1, valid: 1, duplicate: 0, invalid: 0, orders: 1 } }} />);
+      const qty = await cellInput('Qty, row 2');
+      expect(qty).toHaveValue('1');
+      expect(qty).not.toHaveAttribute('aria-invalid');
+      fireEvent.change(qty, { target: { value: '3' } });
+      fireEvent.keyDown(qty, { key: 'Enter' });
+      await waitFor(() => expect(calls('PATCH', '/imports/imp1/rows/2')[0][2]).toEqual({ cells: { Qty: '3' } }));
+    });
+
+    it('lets the seller give a duplicate row a new order ID and import it', async () => {
       const DUP: ImportRowDto = {
         ...ROW,
         status: 'duplicate',
@@ -313,24 +357,13 @@ describe('ImportWizard', () => {
       render(<ImportWizard imp={allDup} />);
 
       expect(screen.getByRole('heading', { name: 'These orders are already imported' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Import 0 Orders' })).toBeDisabled();
-      const row = await openFix(2);
-      expect(within(row).getByText(DUP.problems.externalRef!)).toBeInTheDocument();
-      fireEvent.change(within(row).getByLabelText('Order ID'), { target: { value: 'FB-2' } });
-      fireEvent.click(within(row).getByRole('button', { name: 'Save row 2' }));
+      const ref = await cellInput('Order ID, row 2');
+      expect(ref).toHaveValue('FB-1');
+      fireEvent.change(ref, { target: { value: 'FB-2' } });
+      fireEvent.keyDown(ref, { key: 'Enter' });
 
       expect(await screen.findByRole('button', { name: 'Import 1 Order' })).toBeEnabled();
       expect(calls('PATCH', '/imports/imp1/rows/2')[0][2]).toEqual({ cells: { 'Order ID': 'FB-2' } });
-      expect(screen.getByRole('status')).toHaveTextContent('Row 2 fixed');
-    });
-
-    it('shows a failed save inside the row', async () => {
-      serve(() => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: 'Could not reach the server.' } }));
-      render(<ImportWizard imp={withInvalid(1, 5)} />);
-      const row = await openFix(3);
-      fireEvent.change(within(row).getByLabelText('Phone'), { target: { value: '01912345678' } });
-      fireEvent.click(within(row).getByRole('button', { name: 'Save row 3' }));
-      expect(await within(row).findByText('Could not reach the server.')).toBeInTheDocument();
     });
   });
 
@@ -371,6 +404,10 @@ describe('ImportWizard', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('A cost you add now counts for new orders only. These imported orders keep a cost of 0.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Fix missing costs' })).toHaveAttribute('href', '/products/missing-cost');
+    // Plain words for where each button goes.
+    expect(screen.getByRole('link', { name: 'View imported orders' })).toHaveAttribute('href', '/orders?from=2026-10-01&to=2026-10-31');
+    expect(screen.getByRole('link', { name: 'Import history' })).toHaveAttribute('href', '/imports');
+    expect(screen.queryByRole('link', { name: 'All imports' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'See profit for 1 Oct 2026 – 31 Oct 2026' })).toHaveAttribute(
       'href',
       '/dashboard?from=2026-10-01&to=2026-10-31',

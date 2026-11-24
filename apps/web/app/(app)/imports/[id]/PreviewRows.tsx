@@ -1,14 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  IMPORT_ROW_REASON_LABELS,
-  IMPORT_TARGET_LABELS,
-  type ImportDto,
-  type ImportRowDto,
-  type ImportRowEditDto,
-  type ImportTarget,
-} from '@ph/shared';
+import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { IMPORT_ROW_REASON_LABELS, type ImportDto, type ImportRowDto, type ImportRowEditDto, type ImportTarget } from '@ph/shared';
 import { Skeleton } from '@/components/ui';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -16,48 +10,82 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useImportRows } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
-import { FixRow } from './FixRow';
+import { FixCell } from './FixCell';
 
 export type RowTab = 'valid' | 'duplicate' | 'invalid';
 
 const PER_PAGE = 25;
-const SHOWN: ImportTarget[] = ['phone', 'product', 'quantity', 'sellingPrice'];
 
+/** Things to know about a ready row; it still imports. */
 const WARNING_LABELS: Record<string, string> = {
-  date_missing: 'No order date: today is used',
-  cost_missing: 'No product cost',
-  discount_clamped: 'Discount was more than the order and is capped',
+  date_missing: "No order date: today's date is used",
+  cost_missing: 'No product cost: its profit will show higher',
+  discount_clamped: 'Discount was more than the order, so it is capped',
 };
 
-function notes(row: ImportRowDto): string {
-  if (row.reasons.length > 0) return row.reasons.map((r) => IMPORT_ROW_REASON_LABELS[r]).join('; ');
-  return row.warnings.map((w) => WARNING_LABELS[w] ?? w).join('; ');
+type Issue = { tone: 'error' | 'warn' | 'fixed'; text: string };
+
+/** Reasons that belong to one value; that value's message (with its column and value) replaces them. */
+const FIELD_REASONS = new Set(['phone_invalid', 'product_missing', 'quantity_invalid', 'price_invalid', 'date_invalid', 'duplicate_ref']);
+
+/**
+ * The line under a row: what is wrong (naming the column and the value), that a fix worked, or what to
+ * know about it. `headerOf` gives the seller's column name for an imported field.
+ */
+function issuesOf(row: ImportRowDto, edited: boolean, headerOf: (t: ImportTarget) => string | undefined): Issue[] {
+  const fields = (Object.entries(row.problems) as Array<[ImportTarget, string]>).flatMap(([target, hint]) => {
+    const header = headerOf(target);
+    return header ? [{ tone: 'error' as const, text: `${header} “${row.raw[header] ?? ''}”: ${hint}` }] : [];
+  });
+  const rowReasons = row.reasons
+    .filter((r) => fields.length === 0 || !FIELD_REASONS.has(r))
+    .map((r) => ({ tone: 'error' as const, text: IMPORT_ROW_REASON_LABELS[r] }));
+  if (fields.length + rowReasons.length > 0) return [...fields, ...rowReasons];
+  return [
+    ...(edited ? [{ tone: 'fixed' as const, text: 'Fixed, will be imported' }] : []),
+    ...row.warnings.map((w) => ({ tone: 'warn' as const, text: WARNING_LABELS[w] ?? w })),
+  ];
 }
 
-/** One page of checked rows: the key cells and why a row is skipped (or what to know about it). */
-export function PreviewRows({
-  imp,
-  status,
-  version,
-  onFixed,
-}: {
-  imp: ImportDto;
-  status: RowTab;
-  /** Raised after an inline fix, so the rows reload. */
-  version: number;
-  onFixed: (result: ImportRowEditDto) => void;
-}) {
+/** Full-width line under a row; it stays at the left edge while the table scrolls sideways. */
+function IssueLine({ id, issues }: { id: string; issues: Issue[] }) {
+  return (
+    <div id={id} className="sticky left-4 flex w-fit max-w-[min(48rem,85vw)] flex-col gap-0.5">
+      {issues.map((issue) => (
+        <span
+          key={issue.text}
+          className={cn(
+            'inline-flex items-start gap-1.5 text-sm',
+            issue.tone === 'error' ? 'text-loss' : issue.tone === 'warn' ? 'text-xs text-warn-ink' : 'font-medium text-gain',
+          )}
+        >
+          {issue.tone === 'fixed' ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : null}
+          {issue.tone === 'error' ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> : null}
+          {issue.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One page of checked rows, with every column of the seller's file under its own header, in one table that
+ * scrolls sideways on every screen size. Every imported
+ * value can be changed in place; a fixed row stays where it is (its red border goes) until the tab changes.
+ */
+export function PreviewRows({ imp, status, onFixed }: { imp: ImportDto; status: RowTab; onFixed: (result: ImportRowEditDto) => void }) {
   const [page, setPage] = useState(1);
-  const { data, error } = useImportRows(imp.id, status, page, PER_PAGE, version);
-  // The last row of the last page was fixed: step back instead of showing an empty page.
-  if (data && data.rows.length === 0 && page > 1) setPage(page - 1);
+  // Rows fixed on this tab, as the API answered: shown in place of the loaded row so nothing jumps away.
+  const [edited, setEdited] = useState<Map<number, ImportRowDto>>(() => new Map());
+  const { data, error } = useImportRows(imp.id, status, page, PER_PAGE);
   const columns = imp.mapping?.columns ?? {};
-  const cell = (row: ImportRowDto, target: ImportTarget) => {
-    const col = columns[target];
-    return col ? (row.raw[col] ?? '') : '';
-  };
-  const notesLabel = status === 'valid' ? 'Notes' : 'Reason';
-  const [editing, setEditing] = useState<number | null>(null);
+  const targetOf = new Map(Object.entries(columns).map(([target, header]) => [header, target as ImportTarget]));
+  const headers = [...new Set(imp.headers.filter((h) => h !== ''))];
+
+  function fixed(result: ImportRowEditDto) {
+    setEdited(new Map(edited).set(result.row.rowNumber, result.row));
+    onFixed(result);
+  }
 
   if (error) return <Alert variant="destructive">{error.message}</Alert>;
   if (!data) return <Skeleton className="h-40 w-full" />;
@@ -68,106 +96,90 @@ export function PreviewRows({
       </Card>
     );
   }
+  const rows = data.rows.map((r) => edited.get(r.rowNumber) ?? r);
   const pages = Math.max(1, Math.ceil(data.total / PER_PAGE));
-  const pager =
-    pages > 1 ? (
-      <nav className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="Rows pages">
-        <span className="text-ink-muted tabular">
-          Page {page} of {pages} · {data.total} rows
-        </span>
-        <div className="flex gap-2">
-          <Button variant="secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-            Previous
-          </Button>
-          <Button variant="secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>
-            Next
-          </Button>
-        </div>
-      </nav>
-    ) : null;
 
-  const fixable = status !== 'valid';
-  const editingRow = data.rows.find((r) => r.rowNumber === editing);
-
-  /** A wrong value: a thin red border, and a click opens the row to fix it. */
-  const value = (row: ImportRowDto, t: ImportTarget) => {
-    const text = cell(row, t);
-    if (!fixable || !row.problems[t]) return text;
+  /** An imported value is a box you can change; a column that is not imported is shown faded. */
+  const value = (row: ImportRowDto, header: string, fit = false) => {
+    const target = targetOf.get(header);
+    const text = row.raw[header] ?? '';
+    if (!target) return <span className="text-ink-faint">{text}</span>;
     return (
-      <button
-        type="button"
-        aria-label={`Fix row ${row.rowNumber}: ${IMPORT_TARGET_LABELS[t]} ${text}`.trimEnd()}
-        onClick={() => setEditing(row.rowNumber)}
-        className="max-w-full truncate rounded-md border border-loss px-1.5 py-0.5 text-left hover:bg-loss-soft"
-      >
-        {text || '(empty)'}
-      </button>
+      <FixCell
+        key={`${row.rowNumber}-${target}-${text}`}
+        imp={imp}
+        row={row}
+        target={target}
+        label={header}
+        fit={fit}
+        describedBy={`row-${row.rowNumber}-issue`}
+        onFixed={fixed}
+      />
     );
   };
-  /** The reason, which also opens the row (the only way in when no shown value is wrong). */
-  const reason = (row: ImportRowDto, className: string) =>
-    fixable ? (
-      <button
-        type="button"
-        aria-label={`Fix row ${row.rowNumber}: ${notes(row)}`}
-        onClick={() => setEditing(row.rowNumber)}
-        className={cn('text-left text-loss underline decoration-loss/40 underline-offset-2 hover:decoration-loss', className)}
-      >
-        {notes(row)}
-      </button>
-    ) : (
-      <span className={className}>{notes(row)}</span>
-    );
 
   return (
     <div className="flex flex-col gap-3">
-      <Card className="hidden min-w-0 overflow-hidden md:block">
+      {headers.length > 5 ? (
+        <p className={cn('text-xs text-ink-faint', headers.length <= 8 && 'xl:hidden')}>
+          Scroll sideways to see all {headers.length} columns.
+        </p>
+      ) : null}
+      {/* One table on every screen size: it scrolls sideways, with the row number kept on the left. */}
+      <Card className="min-w-0 overflow-x-auto [scrollbar-width:thin]">
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Row</TableHead>
-              {SHOWN.map((t) => (
-                <TableHead key={t}>{IMPORT_TARGET_LABELS[t]}</TableHead>
+              <TableHead className="sticky left-0 z-10 bg-card">Row</TableHead>
+              {headers.map((h) => (
+                <TableHead key={h} className="whitespace-nowrap">
+                  {h}
+                  {targetOf.has(h) ? null : <span className="ml-1 text-[10px] font-normal normal-case text-ink-faint">not imported</span>}
+                </TableHead>
               ))}
-              <TableHead>{notesLabel}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.rows.map((row) => (
-              <TableRow key={row.rowNumber}>
-                <TableCell className="tabular text-ink-muted">{row.rowNumber}</TableCell>
-                {SHOWN.map((t) => (
-                  <TableCell key={t} className="max-w-[12rem] truncate">
-                    {value(row, t)}
-                  </TableCell>
-                ))}
-                <TableCell>{reason(row, status === 'valid' ? 'text-ink-muted' : 'text-loss')}</TableCell>
-              </TableRow>
-            ))}
+            {rows.map((row) => {
+              const issues = issuesOf(row, edited.has(row.rowNumber), (t) => columns[t]);
+              return (
+                <Fragment key={row.rowNumber}>
+                  <TableRow className={cn(issues.length > 0 && 'border-b-0')}>
+                    <TableCell className="sticky left-0 z-10 bg-card align-top tabular text-ink-muted">{row.rowNumber}</TableCell>
+                    {headers.map((h) => (
+                      <TableCell key={h} className="whitespace-nowrap align-top">
+                        {value(row, h, true)}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                  {issues.length > 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={headers.length + 1} className="pb-3 pt-0">
+                        <IssueLine id={`row-${row.rowNumber}-issue`} issues={issues} />
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
+              );
+            })}
           </TableBody>
         </Table>
       </Card>
 
-      <ul className="flex flex-col gap-2 md:hidden">
-        {data.rows.map((row) => (
-          <li key={row.rowNumber}>
-            <Card className="flex min-w-0 flex-col gap-1 p-3 text-sm">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-semibold">{cell(row, 'product') || '—'}</span>
-                <span className="shrink-0 text-xs text-ink-faint tabular">Row {row.rowNumber}</span>
-              </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-ink-muted tabular">
-                {value(row, 'phone')} · {value(row, 'quantity')} × {value(row, 'sellingPrice')}
-              </div>
-              {notes(row) ? reason(row, status === 'valid' ? 'text-xs text-ink-muted' : 'text-xs text-loss') : null}
-            </Card>
-          </li>
-        ))}
-      </ul>
-
-      {pager}
-      {editingRow ? (
-        <FixRow key={editingRow.rowNumber} imp={imp} row={editingRow} onFixed={onFixed} onClose={() => setEditing(null)} />
+      {pages > 1 ? (
+        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="Rows pages">
+          <span className="text-ink-muted tabular">
+            Page {page} of {pages} · {data.total} rows
+          </span>
+          <div className="flex gap-2">
+            <Button variant="secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+              Previous
+            </Button>
+            <Button variant="secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+              Next
+            </Button>
+          </div>
+        </nav>
       ) : null}
     </div>
   );
