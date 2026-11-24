@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import {
   daysBetween,
+  lastTwelveMonths,
+  type ExpenseKind,
+  type ExpenseReportDto,
+  type ExpenseReportRowDto,
+  type MonthlyProfitReportDto,
   previousPeriod,
   type InsightDto,
   type Period,
@@ -9,12 +14,25 @@ import {
   type TrendPointDto,
 } from '@ph/shared';
 import { fromDbDate } from '../../common/dates';
-import { buildInsights, computeKpis, computeStatement, productHighlights, productProfitRows, returnLoss } from './profit.calculator';
+import {
+  buildInsights,
+  computeKpis,
+  computeStatement,
+  EMPTY_EXPENSE_AGGREGATES,
+  EMPTY_ORDER_AGGREGATES,
+  productHighlights,
+  productProfitRows,
+  returnLoss,
+} from './profit.calculator';
 import { ProfitRepository } from './profit.repository';
+import { ReportsRepository } from './reports.repository';
 
 @Injectable()
 export class ProfitService {
-  constructor(private readonly repo: ProfitRepository) {}
+  constructor(
+    private readonly repo: ProfitRepository,
+    private readonly reports: ReportsRepository,
+  ) {}
 
   async summary(businessId: string, period: Period): Promise<ProfitSummaryDto> {
     const prev = previousPeriod(period);
@@ -89,6 +107,46 @@ export class ProfitService {
     const highlights = productHighlights(rows);
     if (filters.limit) rows = rows.slice(0, filters.limit);
     return { period, rows, highlights };
+  }
+
+  /** FR-REP-01: the 12 months ending `toMonth` (`YYYY-MM`), oldest first; empty months are zeros. */
+  async monthly(businessId: string, toMonth: string): Promise<MonthlyProfitReportDto> {
+    const { period, months } = lastTwelveMonths(toMonth);
+    const [orders, expenses, total] = await Promise.all([
+      this.reports.monthlyOrderAggregates(businessId, period),
+      this.reports.monthlyExpenseAggregates(businessId, period),
+      this.periodFigures(businessId, period),
+    ]);
+    return {
+      months: months.map((month) => {
+        const o = orders.get(month) ?? EMPTY_ORDER_AGGREGATES;
+        const statement = computeStatement(o, expenses.get(month) ?? EMPTY_EXPENSE_AGGREGATES);
+        return { month, statement, kpis: computeKpis(o, statement) };
+      }),
+      total: { statement: total.statement, kpis: total.kpis },
+    };
+  }
+
+  /** FR-REP-03: spend per category and month over the 12 months ending `toMonth`, largest category first. */
+  async expenseReport(businessId: string, toMonth: string): Promise<ExpenseReportDto> {
+    const { period, months } = lastTwelveMonths(toMonth);
+    const column = new Map(months.map((m, i) => [m, i]));
+    const rows = new Map<string, ExpenseReportRowDto>();
+    for (const r of await this.reports.expensesByCategoryMonth(businessId, period)) {
+      const row = rows.get(r.categoryId) ?? {
+        categoryId: r.categoryId,
+        categoryName: r.categoryName,
+        kind: r.kind as ExpenseKind,
+        amounts: months.map(() => 0),
+        total: 0,
+      };
+      row.amounts[column.get(r.month)!] += r.amount;
+      row.total += r.amount;
+      rows.set(r.categoryId, row);
+    }
+    const sorted = [...rows.values()].sort((a, b) => b.total - a.total || a.categoryName.localeCompare(b.categoryName));
+    const monthTotals = months.map((_, i) => sorted.reduce((sum, r) => sum + r.amounts[i], 0));
+    return { months, rows: sorted, monthTotals, total: monthTotals.reduce((a, b) => a + b, 0) };
   }
 
   private async periodFigures(businessId: string, period: Period) {

@@ -196,6 +196,34 @@ export function parseRow(raw: Record<string, string>, mapping: ImportMapping, ct
   };
 }
 
+const FIELD_HINTS = {
+  phone: 'Enter a number like 017XXXXXXXX',
+  product: 'Enter the product name',
+  quantity: 'Enter a whole number of 1 or more',
+  amount: 'Enter an amount like 1250',
+  date: 'Enter a date like 2026-10-31',
+} as const;
+
+const OPTIONAL_MONEY: readonly ImportTarget[] = ['productCost', 'discount', 'deliveryCharge', 'courierCost'];
+
+/** Which fields of a row `parseRow` refuses, with what to enter in each, so the seller can fix them in place. */
+export function rowProblems(raw: Record<string, string>, mapping: ImportMapping): Partial<Record<ImportTarget, string>> {
+  const cell = (target: ImportTarget): string => {
+    const header = mapping.columns[target];
+    return header === undefined ? '' : (raw[header] ?? '').trim();
+  };
+  const problems: Partial<Record<ImportTarget, string>> = {};
+  if (!normalizePhone(cell('phone'))) problems.phone = FIELD_HINTS.phone;
+  if (cell('product') === '') problems.product = FIELD_HINTS.product;
+  if (parseQuantity(cell('quantity')) === null) problems.quantity = FIELD_HINTS.quantity;
+  if (parseAmount(cell('sellingPrice')) === null) problems.sellingPrice = FIELD_HINTS.amount;
+  if (cell('orderDate') !== '' && parseImportDate(cell('orderDate')) === null) problems.orderDate = FIELD_HINTS.date;
+  for (const target of OPTIONAL_MONEY) {
+    if (cell(target) !== '' && parseAmount(cell(target)) === null) problems[target] = FIELD_HINTS.amount;
+  }
+  return problems;
+}
+
 /** Fingerprint of an order line, to spot a row already imported. */
 export function dedupeHash(row: NormalizedRow): string {
   const item = (row.sku || row.productName).trim().toLowerCase();

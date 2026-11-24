@@ -25,7 +25,7 @@ npm run dev:web                       # http://localhost:3000
 
 Open http://localhost:3000 and create an account. The browser only talks to the web app; `/api/*` is proxied to the API so the session cookie is first-party.
 
-Sign-up has two modes, set by `OTP_REQUIRED` in `apps/api/.env`. `false` (default, test phase): email or phone and a password. `true`: the mobile number is confirmed with an SMS code; there is no SMS gateway yet, so the API prints each code in its terminal (`SMS to 017…: Your ProfitHishab code is …`), and with `OTP_FIXED_CODE=123456` it is always `123456`. Every new account gets a 7-day free trial in both modes, then becomes read-only.
+Sign-up has two modes, set by `OTP_REQUIRED` in `apps/api/.env`. `false` (default, test phase): email and a password (the phone is optional; email is required while there is no SMS gateway). `true`: the mobile number is confirmed with an SMS code; there is no SMS gateway yet, so the API prints each code in its terminal (`SMS to 017…: Your ProfitHishab code is …`), and with `OTP_FIXED_CODE=123456` it is always `123456`. Every new account gets a 7-day free trial in both modes, then becomes read-only.
 
 Forgot password emails a reset link. In development `MAIL_DRIVER=log` prints the email (with the link) in the API terminal; production needs `MAIL_DRIVER=smtp` and the `SMTP_*` settings from `apps/api/.env.example`.
 
@@ -36,6 +36,8 @@ Forgot password emails a reset link. In development `MAIL_DRIVER=log` prints the
 **Importing orders** (past orders from Excel or CSV): open `/imports/new` in the app and upload an `.xlsx`, `.xls` or `.csv` file, or download the template first (`/api/imports/template.xlsx` through the web app, `/v1/imports/template.xlsx` on the API). Limits: 5 MB, 5,000 rows, first sheet only. Check the suggested columns, preview what will be imported, then import; an import can be undone from `/imports`. Imported orders never change stock.
 
 If the API fails with Prisma `P1001` while the `db` container is healthy (OrbStack sometimes leaves the port unattached after `db:up`), run `docker compose restart db`.
+
+Business logos are written to `STORAGE_DIR` (default `apps/api/storage`, git-ignored); `sharp` resizes them. In Docker the API image declares a volume at `/app/apps/api/storage`.
 
 ## Checks
 

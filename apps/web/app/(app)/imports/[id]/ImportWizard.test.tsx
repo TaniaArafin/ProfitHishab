@@ -49,7 +49,7 @@ const VALIDATED = makeImport({
   counts: { total: 237, valid: 225, duplicate: 8, invalid: 4, orders: 225 },
 });
 
-const ROW: ImportRowDto = { rowNumber: 2, status: 'valid', reasons: [], warnings: [], raw: SAMPLE };
+const ROW: ImportRowDto = { rowNumber: 2, status: 'valid', reasons: [], warnings: [], raw: SAMPLE, problems: {} };
 
 const RESULT: ImportCommitResultDto = {
   ordersCreated: 225,
@@ -95,7 +95,7 @@ describe('ImportWizard', () => {
     // The sample rows are shown with the file's own headers.
     expect(screen.getByRole('table', { name: 'First rows of your file' })).toHaveTextContent('Jamdani Saree');
 
-    const proceed = screen.getByRole('button', { name: 'Continue' });
+    const proceed = screen.getByRole('button', { name: 'Review orders' });
     expect(proceed).toBeDisabled();
     expect(screen.getByText('Choose a column for: Quantity')).toBeInTheDocument();
 
@@ -134,12 +134,12 @@ describe('ImportWizard', () => {
         })}
       />,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review orders' }));
 
     const ferot = await screen.findByRole('combobox', { name: '“Ferot” (12 rows)' });
     expect(screen.getByRole('combobox', { name: '“Delivered” (200 rows)' })).toHaveTextContent('Delivered');
     expect(calls('POST', '/imports/imp1/validate')).toHaveLength(0);
-    const proceed = screen.getByRole('button', { name: 'Check my file' });
+    const proceed = screen.getByRole('button', { name: 'Review orders' });
     expect(proceed).toBeDisabled();
 
     choose(ferot, 'Returned');
@@ -148,6 +148,174 @@ describe('ImportWizard', () => {
     expect(calls('PUT', '/imports/imp1/mapping')[1][2]).toEqual({
       columns: mapped.mapping!.columns,
       statuses: { Delivered: 'delivered', Ferot: 'returned' },
+    });
+  });
+
+  it('goes straight to the preview from Continue when every status is recognised', async () => {
+    const columns = { phone: 'Phone', product: 'Product', quantity: 'Qty', sellingPrice: 'Price', status: 'Status' };
+    const mapped = makeImport({
+      status: 'mapped',
+      mapping: { columns, statuses: {} },
+      statusValues: [{ value: 'Delivered', count: 200, suggested: 'delivered' }],
+    });
+    api.mockImplementation((method, path) => {
+      if (method === 'PUT') return ok(mapped);
+      if (method === 'POST' && path === '/imports/imp1/validate') return ok(VALIDATED);
+      return ok([ROW], { meta: { total: 1 } });
+    });
+    render(<ImportWizard imp={makeImport({ suggestedColumns: columns })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Review orders' }));
+
+    await screen.findByText('237 rows detected: 225 valid, 8 duplicate, 4 invalid');
+    expect(screen.queryByText('What do these statuses mean?')).not.toBeInTheDocument();
+    expect(calls('PUT', '/imports/imp1/mapping').at(-1)?.[2]).toEqual({ columns, statuses: { Delivered: 'delivered' } });
+  });
+
+  it('opens on the status question when the columns are saved but a status is unknown', () => {
+    render(
+      <ImportWizard
+        imp={makeImport({
+          status: 'mapped',
+          mapping: {
+            columns: { phone: 'Phone', product: 'Product', quantity: 'Qty', sellingPrice: 'Price', status: 'Status' },
+            statuses: {},
+          },
+          statusValues: [{ value: 'Ferot', count: 12, suggested: null }],
+        })}
+      />,
+    );
+    expect(screen.getByText('What do these statuses mean?')).toBeInTheDocument();
+  });
+
+  it('shows what was matched on the preview, and Change columns also lets the seller review statuses', async () => {
+    const columns = { phone: 'Phone', product: 'Product', quantity: 'Qty', sellingPrice: 'Price', status: 'Status' };
+    const statusValues = [{ value: 'Delivered', count: 200, suggested: 'delivered' as const }];
+    const checked = makeImport({
+      status: 'validated',
+      mapping: { columns, statuses: { Delivered: 'delivered' } },
+      statusValues,
+      counts: { total: 200, valid: 200, duplicate: 0, invalid: 0, orders: 200 },
+    });
+    api.mockImplementation((method) => {
+      if (method === 'PUT') return ok({ ...checked, status: 'mapped' });
+      return ok([ROW], { meta: { total: 1 } });
+    });
+    render(<ImportWizard imp={checked} />);
+
+    expect(screen.getByText('Matched 5 columns and 1 status')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Change columns' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review orders' }));
+    expect(await screen.findByText('What do these statuses mean?')).toBeInTheDocument();
+  });
+
+  describe('fixing a wrong row in place', () => {
+    const BAD: ImportRowDto = {
+      rowNumber: 3,
+      status: 'invalid',
+      reasons: ['phone_invalid', 'quantity_invalid'],
+      warnings: [],
+      raw: { ...SAMPLE, Phone: '12345', Qty: 'zero' },
+      problems: { phone: 'Enter a number like 017XXXXXXXX', quantity: 'Enter a whole number of 1 or more' },
+    };
+    const withInvalid = (invalid: number, valid: number) => ({
+      ...VALIDATED,
+      counts: { total: invalid + valid, valid, duplicate: 0, invalid, orders: valid },
+    });
+    let invalidRows: ImportRowDto[];
+
+    function serve(edit: () => unknown) {
+      invalidRows = [BAD];
+      api.mockImplementation((method, path) => {
+        if (method === 'PATCH') return edit() as Promise<unknown>;
+        if (method === 'GET' && path.includes('status=invalid')) return ok(invalidRows, { meta: { total: invalidRows.length } });
+        return ok([ROW], { meta: { total: 1 } });
+      });
+    }
+
+    it('opens on the wrong rows and shows each error under its field', async () => {
+      serve(() => ok({}));
+      render(<ImportWizard imp={withInvalid(1, 5)} />);
+      const row = await screen.findByRole('form', { name: 'Fix row 3' });
+      expect(within(row).getByLabelText('Phone')).toHaveValue('12345');
+      expect(within(row).getByLabelText('Phone')).toHaveAttribute('aria-invalid', 'true');
+      expect(within(row).getByText('Enter a number like 017XXXXXXXX')).toBeInTheDocument();
+      expect(within(row).getByText('Enter a whole number of 1 or more')).toBeInTheDocument();
+      expect(within(row).getByLabelText('Product')).not.toHaveAttribute('aria-invalid');
+      expect(within(row).getByRole('button', { name: 'Save row 3' })).toBeDisabled();
+    });
+
+    it('saves only the changed cells, then counts the row as ready', async () => {
+      serve(() => {
+        invalidRows = [];
+        return ok({ import: withInvalid(0, 6), row: { ...BAD, status: 'valid', reasons: [], problems: {} } });
+      });
+      render(<ImportWizard imp={withInvalid(1, 5)} />);
+      const row = await screen.findByRole('form', { name: 'Fix row 3' });
+      fireEvent.change(within(row).getByLabelText('Phone'), { target: { value: '01912345678' } });
+      fireEvent.change(within(row).getByLabelText('Quantity'), { target: { value: '2' } });
+      fireEvent.click(within(row).getByRole('button', { name: 'Save row 3' }));
+
+      expect(await screen.findByRole('button', { name: 'Import 6 Orders' })).toBeEnabled();
+      expect(calls('PATCH', '/imports/imp1/rows/3')[0][2]).toEqual({ cells: { Phone: '01912345678', Qty: '2' } });
+      expect(screen.getByRole('status')).toHaveTextContent('Row 3 fixed');
+      await waitFor(() => expect(screen.queryByRole('form', { name: 'Fix row 3' })).not.toBeInTheDocument());
+    });
+
+    it('keeps what was typed and shows the new error when a value is still wrong', async () => {
+      const still = { ...BAD, raw: { ...BAD.raw, Phone: '01912345678' }, problems: { quantity: BAD.problems.quantity } };
+      serve(() => {
+        invalidRows = [still];
+        return ok({ import: withInvalid(1, 5), row: still });
+      });
+      render(<ImportWizard imp={withInvalid(1, 5)} />);
+      const row = await screen.findByRole('form', { name: 'Fix row 3' });
+      fireEvent.change(within(row).getByLabelText('Phone'), { target: { value: '01912345678' } });
+      fireEvent.click(within(row).getByRole('button', { name: 'Save row 3' }));
+
+      await waitFor(() => expect(within(row).queryByText('Enter a number like 017XXXXXXXX')).not.toBeInTheDocument());
+      expect(within(row).getByLabelText('Phone')).toHaveValue('01912345678');
+      expect(within(row).getByText('Enter a whole number of 1 or more')).toBeInTheDocument();
+    });
+
+    it('lets the seller change a duplicate row and import it', async () => {
+      const DUP: ImportRowDto = {
+        ...ROW,
+        status: 'duplicate',
+        reasons: ['duplicate_ref'],
+        problems: { externalRef: 'This order ID is already imported. Enter a new one if this is a different order.' },
+      };
+      const allDup = { ...VALIDATED, counts: { total: 1, valid: 0, duplicate: 1, invalid: 0, orders: 0 } };
+      const ready = { ...VALIDATED, counts: { total: 1, valid: 1, duplicate: 0, invalid: 0, orders: 1 } };
+      let duplicates = [DUP];
+      api.mockImplementation((method, path) => {
+        if (method === 'PATCH') {
+          duplicates = [];
+          return ok({ import: ready, row: { ...DUP, status: 'valid', reasons: [], problems: {} } });
+        }
+        if (method === 'GET' && path.includes('status=duplicate')) return ok(duplicates, { meta: { total: duplicates.length } });
+        return ok([ROW], { meta: { total: 1 } });
+      });
+      render(<ImportWizard imp={allDup} />);
+
+      expect(screen.getByRole('heading', { name: 'These orders are already imported' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Import 0 Orders' })).toBeDisabled();
+      const row = await screen.findByRole('form', { name: 'Fix row 2' });
+      expect(within(row).getByText(DUP.problems.externalRef!)).toBeInTheDocument();
+      fireEvent.change(within(row).getByLabelText('Order ID'), { target: { value: 'FB-2' } });
+      fireEvent.click(within(row).getByRole('button', { name: 'Save row 2' }));
+
+      expect(await screen.findByRole('button', { name: 'Import 1 Order' })).toBeEnabled();
+      expect(calls('PATCH', '/imports/imp1/rows/2')[0][2]).toEqual({ cells: { 'Order ID': 'FB-2' } });
+      expect(screen.getByRole('status')).toHaveTextContent('Row 2 fixed');
+    });
+
+    it('shows a failed save inside the row', async () => {
+      serve(() => Promise.resolve({ ok: false, status: 0, error: { code: 'network', message: 'Could not reach the server.' } }));
+      render(<ImportWizard imp={withInvalid(1, 5)} />);
+      const row = await screen.findByRole('form', { name: 'Fix row 3' });
+      fireEvent.change(within(row).getByLabelText('Phone'), { target: { value: '01912345678' } });
+      fireEvent.click(within(row).getByRole('button', { name: 'Save row 3' }));
+      expect(await within(row).findByText('Could not reach the server.')).toBeInTheDocument();
     });
   });
 

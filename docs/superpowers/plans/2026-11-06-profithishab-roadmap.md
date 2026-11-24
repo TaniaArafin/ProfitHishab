@@ -6,7 +6,7 @@
 
 **Spec:** [SRS.md](../../../SRS.md) (V1 = sections 5–11; later versions = section 12). Engineering rules: [CLAUDE.md](../../../CLAUDE.md).
 
-**Status date:** 2026-11-06. Nothing after `9ee3926` is committed; the user commits.
+**Status date:** 2026-11-14. Nothing after `9ee3926` is committed; the user commits.
 
 ## Global constraints (every phase)
 
@@ -29,14 +29,16 @@
 | Forgot password by email | FR-AUTH-06 | Done (needs a real SMTP account to work in production) |
 | 7-day free trial, read-only after it ends | (not in SRS) | Done |
 | Phone OTP sign-up behind `OTP_REQUIRED` | (not in SRS) | Done, off by default; no SMS gateway yet |
-| Business profile, couriers, profit settings | FR-BIZ-01 (without logo), 02–04 | Done |
+| Business profile with logo, couriers, profit settings (split into `/settings/business`, `/profit`, `/couriers`, `/account`) | FR-BIZ-01–04 | Done |
 | Onboarding checklist on the empty dashboard | FR-BIZ-05 | Done |
 | Products, categories, price history, missing-cost screen, Typesense search | FR-PROD-01–07 | Done |
 | Orders: create, edit, status flow, bulk status, stock, per-order profit, idempotency | FR-ORD-01–11 | Done |
 | Customers with computed stats and profile | FR-CUST-01–05 | Done |
 | Expenses and categories, double-count warning | FR-EXP-01–06 | Done |
 | Profit calculator, dashboard, trend, insights, data-quality banner | Section 6, FR-DASH-01–09 | Done |
-| Product profitability page | FR-PP-01–05, FR-REP-02 (page only) | Done (no CSV export) |
+| Product profitability page | FR-PP-01–05 | Done |
+| Reports: monthly profit, expenses, product profit, each with CSV and Excel (.xlsx) export (Phase 2) | FR-REP-01–04, FR-V2-08 (XLSX only) | Done |
+| Account settings: edit name/email/phone, change password; email required at sign-up (Phase 3) | FR-AUTH-07 rule, FR-AUTH-09 | Done |
 | Landing page | Section 9 | Done (English only) |
 | Platform admin panel | FR-V2-09 (early) | Done: list, access changes, block, password link, history |
 | shadcn UI, responsive on every screen size | Section 9 | Done |
@@ -48,7 +50,7 @@ Each phase ends with working, tested software. A phase starts only after the one
 
 ### Phase 1: Excel / CSV order import (FR-IMP-01–13)
 
-**Status: built.** The wizard, history with undo, template, rejected-rows CSV and the register → import → see profit Playwright test (`apps/web/e2e/import.spec.ts`) are done; SRS 11.1 items 2–4 pass with the fixture. The review and the owner's commit are all that remain.
+**Status: done (verified 2026-11-14).** The wizard, history with undo, template, rejected-rows CSV and the register → import → see profit Playwright test (`apps/web/e2e/import.spec.ts`) pass; SRS 11.1 items 2–4 pass with the fixture, and 5,000 rows import in under 20 s.
 
 **Why first:** the SRS calls import "V1 priority" and never-cut. Sellers keep their orders in Excel; without import nobody sees their profit in the first five minutes.
 
@@ -59,6 +61,8 @@ Each phase ends with working, tested software. A phase starts only after the one
 **Plan:** [2026-11-06-excel-import.md](2026-11-06-excel-import.md)
 
 ### Phase 2: Reports and CSV export (FR-REP-01–04)
+
+**Status: done (2026-11-14).** SRS 11.1 item 5 (reference figures ৳5,20,000 / ৳1,20,000 / 23.1%, `test/reports.e2e-spec.ts`) and item 10 (the CSV starts with a UTF-8 BOM and keeps Bangla text; Playwright downloads it in `import.spec.ts`; not yet opened in a real Excel) pass. Plan: [2026-11-14-reports-and-account-settings.md](2026-11-14-reports-and-account-settings.md).
 
 **Delivers:**
 - `/reports/monthly-profit`: the last 12 months, one row each, with the full statement from `profit.calculator.ts`.
@@ -71,6 +75,8 @@ Each phase ends with working, tested software. A phase starts only after the one
 **Size:** small. Mostly SQL in `ProfitRepository` plus three pages.
 
 ### Phase 3: Account settings and sign-up safety (FR-AUTH-07 rule, FR-AUTH-09, FR-BIZ-01 logo)
+
+**Status: done (2026-11-14).** Account edit and password change (`test/account.e2e-spec.ts`), email required at sign-up, logo upload (`test/logo.e2e-spec.ts`), four settings pages (`apps/web/e2e/settings.spec.ts`). Same plan as Phase 2.
 
 **Delivers:**
 - `/settings/account`: change password (current password required, other sessions revoked) and edit name, email and phone (uniqueness checked).

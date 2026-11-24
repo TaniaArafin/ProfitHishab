@@ -85,12 +85,16 @@ export interface ImportRowsPage {
   total: number;
 }
 
-/** One page of an import's checked rows with this status; `undefined` while loading. */
+/**
+ * One page of an import's checked rows with this status; `undefined` while loading. Raising `version`
+ * reloads the page and keeps showing the current rows meanwhile, so an inline fix does not flash a skeleton.
+ */
 export function useImportRows(
   importId: string,
   status: ImportRowStatus,
   page: number,
   perPage = 25,
+  version = 0,
 ): { data: ImportRowsPage | undefined; error: ApiError | null } {
   const key = `${importId}|${status}|${page}|${perPage}`;
   const [state, setState] = useState<{ key: string; data?: ImportRowsPage; error: ApiError | null } | null>(null);
@@ -109,7 +113,7 @@ export function useImportRows(
     return () => {
       ignore = true;
     };
-  }, [key, importId, status, page, perPage]);
+  }, [key, importId, status, page, perPage, version]);
 
   // Derived during render: rows for another tab or page are never shown.
   if (state?.key !== key) return { data: undefined, error: null };

@@ -10,6 +10,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <AppShell
       businessName={me.business.name}
+      logoUrl={me.business.logoUrl}
       userName={me.user.name}
       isAdmin={me.user.isPlatformAdmin}
       trialEndsAt={me.business.trialEndsAt}

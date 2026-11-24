@@ -52,6 +52,24 @@ export class AuthError extends AppError {
     return new AuthError(422, 'validation_failed', message, field('phone', message));
   }
 
+  /** FR-AUTH-07: no SMS gateway, so the email is the only way to reset the password. */
+  static emailRequired(): AuthError {
+    const message = 'Enter your email. You need it to reset your password.';
+    return new AuthError(422, 'validation_failed', message, field('email', message));
+  }
+
+  /** FR-AUTH-09: an account keeps an email or a phone to log in with. */
+  static contactRequired(): AuthError {
+    const message = 'Keep an email or a phone number.';
+    return new AuthError(422, 'validation_failed', message, field('email', message));
+  }
+
+  /** FR-AUTH-09: the current password given to change it is wrong. */
+  static wrongCurrentPassword(): AuthError {
+    const message = 'Your current password is not right.';
+    return new AuthError(422, 'wrong_password', message, field('currentPassword', message));
+  }
+
   static codeRequired(): AuthError {
     const message = 'Enter the 6-digit code from the SMS';
     return new AuthError(422, 'validation_failed', message, field('code', message));

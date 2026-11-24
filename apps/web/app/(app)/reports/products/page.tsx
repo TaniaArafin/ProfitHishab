@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { PieChart } from 'lucide-react';
 import Link from 'next/link';
 import { formatTaka, type CategoryDto, type ProductProfitDto, type ProductProfitReportDto } from '@ph/shared';
+import { ExportButtons } from '@/components/ExportButtons';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { SelectField } from '@/components/SelectField';
 import { EmptyState, Money, PageHeader, TableCard } from '@/components/ui';
@@ -34,7 +35,12 @@ export default async function ProductProfitPage({ searchParams }: Props) {
         icon={PieChart}
         title="Product profitability"
         description={`${periodLabel(period.from, period.to)} · delivered orders only`}
-        actions={<PeriodSelector preset={period.preset} from={period.from} to={period.to} />}
+        actions={
+          <>
+            <PeriodSelector preset={period.preset} from={period.from} to={period.to} />
+            <ExportButtons href={`/api/reports/product-profit?${period.query}`} />
+          </>
+        }
       />
 
       {report.rows.length === 0 ? (

@@ -14,12 +14,14 @@ export class AuthRepository {
   }
 
   /** exists(), not count() (laravel-eloquent: perf-exists-not-count). */
-  async emailExists(email: string): Promise<boolean> {
-    return (await this.prisma.user.findFirst({ where: { email }, select: { id: true } })) !== null;
+  async emailExists(email: string, exceptUserId?: string): Promise<boolean> {
+    const where = { email, ...(exceptUserId ? { id: { not: exceptUserId } } : {}) };
+    return (await this.prisma.user.findFirst({ where, select: { id: true } })) !== null;
   }
 
-  async phoneExists(phone: string): Promise<boolean> {
-    return (await this.prisma.user.findFirst({ where: { phone }, select: { id: true } })) !== null;
+  async phoneExists(phone: string, exceptUserId?: string): Promise<boolean> {
+    const where = { phone, ...(exceptUserId ? { id: { not: exceptUserId } } : {}) };
+    return (await this.prisma.user.findFirst({ where, select: { id: true } })) !== null;
   }
 
   createUser(
@@ -93,6 +95,24 @@ export class AuthRepository {
 
   updatePassword(userId: string, passwordHash: string, db: Tx) {
     return db.user.update({ where: { id: userId }, data: { passwordHash }, select: { id: true } });
+  }
+
+  /** FR-AUTH-09: the account fields a user edits themselves. */
+  updateUser(userId: string, data: { name?: string; email?: string | null; phone?: string | null; phoneVerifiedAt?: Date | null }) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, name: true, email: true, phone: true, locale: true, isPlatformAdmin: true },
+    });
+  }
+
+  async findPasswordHash(userId: string): Promise<string> {
+    return (await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { passwordHash: true } })).passwordHash;
+  }
+
+  /** Logs out every other device after a password change; `keepSessionId` stays logged in. */
+  revokeOtherSessions(userId: string, keepSessionId: string, db: Tx) {
+    return db.session.updateMany({ where: { userId, revokedAt: null, id: { not: keepSessionId } }, data: { revokedAt: new Date() } });
   }
 
   findUser(userId: string) {

@@ -6,7 +6,9 @@ import {
   HttpCode,
   Param,
   ParseFilePipe,
+  ParseIntPipe,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -18,9 +20,11 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import {
   importListQuerySchema,
   importMappingSchema,
+  importRowEditSchema,
   importRowsQuerySchema,
   type ImportListQuery,
   type ImportMapping,
+  type ImportRowEditInput,
   type ImportRowsQuery,
 } from '@ph/shared';
 import { Auth, type AuthContext } from '../../common/auth';
@@ -108,6 +112,17 @@ export class ImportsController {
   async rows(@Auth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Query(zod(importRowsQuerySchema)) query: ImportRowsQuery) {
     const { rows, total } = await this.imports.rows(auth.businessId, id, query);
     return { data: rows, meta: { page: query.page, perPage: query.perPage, total } };
+  }
+
+  /** An inline fix on the preview; the whole file is re-checked. */
+  @Patch(':id/rows/:rowNumber')
+  async editRow(
+    @Auth() auth: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('rowNumber', ParseIntPipe) rowNumber: number,
+    @Body(zod(importRowEditSchema)) body: ImportRowEditInput,
+  ) {
+    return { data: await this.imports.editRow(auth.businessId, id, rowNumber, body) };
   }
 
   /** Headers go on the file itself, not @Header(), so a 404 stays a JSON error response. */

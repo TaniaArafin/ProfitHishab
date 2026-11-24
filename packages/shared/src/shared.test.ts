@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   canTransition,
+  currentMonthIn,
+  lastTwelveMonths,
   orderTotals,
   parseTaka,
   formatTaka,
@@ -266,5 +268,24 @@ describe('import schemas', () => {
     const r = importRowsQuerySchema.parse({});
     expect(r).toMatchObject({ page: 1, perPage: 25 });
     expect(importRowsQuerySchema.parse({ perPage: '100', status: 'duplicate' }).status).toBe('duplicate');
+  });
+});
+
+describe('report months', () => {
+  it('lastTwelveMonths ends at the given month and wraps the year', () => {
+    const r = lastTwelveMonths('2026-02');
+    expect(r.months[0]).toBe('2025-03');
+    expect(r.months[11]).toBe('2026-02');
+    expect(r.months).toHaveLength(12);
+    expect(r.period).toEqual({ from: '2025-03-01', to: '2026-02-28' });
+  });
+
+  it('lastTwelveMonths knows leap years', () => {
+    expect(lastTwelveMonths('2028-02').period.to).toBe('2028-02-29');
+  });
+
+  it('currentMonthIn uses the business timezone', () => {
+    // 31 Oct 19:30 UTC is already 1 Nov in Dhaka (UTC+6).
+    expect(currentMonthIn('Asia/Dhaka', new Date('2026-10-31T19:30:00Z'))).toBe('2026-11');
   });
 });

@@ -10,7 +10,7 @@ import {
   type OrderAggregates,
 } from './profit.calculator';
 
-interface StatusRow {
+export interface StatusRow {
   status: string;
   count: number;
   subtotal: number;
@@ -20,6 +20,47 @@ interface StatusRow {
   courierCost: number;
   packagingCost: number;
   returnCost: number;
+}
+
+export interface ExpenseKindRow {
+  kind: string;
+  amount: number;
+  count: number;
+}
+
+/** Folds per-status sums into the calculator's input. Shared with the monthly report. */
+export function foldStatusRows(rows: StatusRow[]): OrderAggregates {
+  const agg: OrderAggregates = structuredClone(EMPTY_ORDER_AGGREGATES);
+  for (const r of rows) {
+    if (r.status === 'delivered') {
+      agg.delivered = {
+        count: r.count,
+        subtotal: r.subtotal,
+        discount: r.discount,
+        deliveryCharge: r.deliveryCharge,
+        productCost: r.productCost,
+        courierCost: r.courierCost,
+        packagingCost: r.packagingCost,
+      };
+    } else if (r.status === 'returned') {
+      agg.returned = { count: r.count, courierCost: r.courierCost, packagingCost: r.packagingCost, returnCost: r.returnCost };
+    } else if (r.status === 'cancelled') {
+      agg.cancelled = r.count;
+    } else {
+      agg.pending += r.count;
+    }
+  }
+  return agg;
+}
+
+/** Folds per-kind expense sums into the calculator's input. */
+export function foldExpenseRows(rows: ExpenseKindRow[]): ExpenseAggregates {
+  const agg: ExpenseAggregates = { ...EMPTY_EXPENSE_AGGREGATES };
+  for (const r of rows) {
+    if (r.kind === 'ads' || r.kind === 'courier' || r.kind === 'other') agg[r.kind] += r.amount;
+    agg.count += r.count;
+  }
+  return agg;
 }
 
 /** All profit figures are aggregated in SQL; sums are cast to float8 so they arrive as JS numbers. */
@@ -42,41 +83,16 @@ export class ProfitRepository {
       WHERE "businessId" = ${businessId}::uuid AND "orderDate" BETWEEN ${period.from}::date AND ${period.to}::date
       GROUP BY status`;
 
-    const agg: OrderAggregates = structuredClone(EMPTY_ORDER_AGGREGATES);
-    for (const r of rows) {
-      if (r.status === 'delivered') {
-        agg.delivered = {
-          count: r.count,
-          subtotal: r.subtotal,
-          discount: r.discount,
-          deliveryCharge: r.deliveryCharge,
-          productCost: r.productCost,
-          courierCost: r.courierCost,
-          packagingCost: r.packagingCost,
-        };
-      } else if (r.status === 'returned') {
-        agg.returned = { count: r.count, courierCost: r.courierCost, packagingCost: r.packagingCost, returnCost: r.returnCost };
-      } else if (r.status === 'cancelled') {
-        agg.cancelled = r.count;
-      } else {
-        agg.pending += r.count;
-      }
-    }
-    return agg;
+    return foldStatusRows(rows);
   }
 
   async expenseAggregates(businessId: string, period: Period): Promise<ExpenseAggregates> {
-    const rows = await this.prisma.$queryRaw<Array<{ kind: string; amount: number; count: number }>>`
+    const rows = await this.prisma.$queryRaw<ExpenseKindRow[]>`
       SELECT ec.kind, coalesce(sum(e.amount), 0)::float8 AS amount, count(*)::int AS count
       FROM expenses e JOIN expense_categories ec ON ec.id = e."categoryId"
       WHERE e."businessId" = ${businessId}::uuid AND e."expenseDate" BETWEEN ${period.from}::date AND ${period.to}::date
       GROUP BY ec.kind`;
-    const agg: ExpenseAggregates = { ...EMPTY_EXPENSE_AGGREGATES };
-    for (const r of rows) {
-      if (r.kind === 'ads' || r.kind === 'courier' || r.kind === 'other') agg[r.kind] += r.amount;
-      agg.count += r.count;
-    }
-    return agg;
+    return foldExpenseRows(rows);
   }
 
   /** Revenue and costs per day or month, plus expenses per bucket, for the trend chart. */

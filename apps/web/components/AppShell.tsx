@@ -3,6 +3,7 @@
 import clsx from 'clsx';
 import {
   Banknote,
+  CalendarRange,
   CreditCard,
   FileUp,
   LayoutDashboard,
@@ -10,6 +11,7 @@ import {
   Menu,
   Package,
   PieChart,
+  Receipt,
   Plus,
   Settings,
   ShieldCheck,
@@ -37,10 +39,7 @@ interface NavItem {
 const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
   {
     title: 'Overview',
-    items: [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/reports/products', label: 'Product profit', icon: PieChart },
-    ],
+    items: [{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }],
   },
   {
     title: 'Business',
@@ -50,6 +49,14 @@ const NAV_GROUPS: Array<{ title: string; items: NavItem[] }> = [
       { href: '/customers', label: 'Customers', icon: Users },
       { href: '/expenses', label: 'Expenses', icon: Wallet },
       { href: '/imports', label: 'Import', icon: FileUp },
+    ],
+  },
+  {
+    title: 'Reports',
+    items: [
+      { href: '/reports/products', label: 'Product profit', icon: PieChart },
+      { href: '/reports/monthly-profit', label: 'Monthly profit', icon: CalendarRange },
+      { href: '/reports/expenses', label: 'Expense report', icon: Receipt },
     ],
   },
   {
@@ -88,6 +95,7 @@ function initials(name: string): string {
 
 export function AppShell({
   businessName,
+  logoUrl = null,
   userName,
   isAdmin = false,
   trialEndsAt,
@@ -95,6 +103,8 @@ export function AppShell({
   children,
 }: {
   businessName: string;
+  /** FR-BIZ-01: shown beside the business name when set. */
+  logoUrl?: string | null;
   userName: string;
   isAdmin?: boolean;
   trialEndsAt: string | null;
@@ -155,7 +165,14 @@ export function AppShell({
 
         <div className="mx-4 mb-5 rounded-xl border border-ink/10 bg-white/45 px-4 py-3">
           <div className="text-[11px] font-medium uppercase tracking-wider text-ink/45">Business</div>
-          <div className="mt-0.5 truncate font-semibold">{businessName}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            {logoUrl ? (
+              // A plain img: the logo is private to the session, and next/image would fetch it without the cookie.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" width={24} height={24} className="h-6 w-6 shrink-0 rounded-md object-contain" />
+            ) : null}
+            <span className="truncate font-semibold">{businessName}</span>
+          </div>
         </div>
 
         <nav className="flex flex-1 flex-col gap-6 overflow-y-auto px-3" aria-label="Main">

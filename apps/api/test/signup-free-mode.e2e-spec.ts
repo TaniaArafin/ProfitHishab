@@ -22,18 +22,28 @@ describe('Sign-up without SMS codes (OTP_REQUIRED=false) (e2e)', () => {
 
   it('tells the sign-up form that no code is needed', async () => {
     const res = await new Client(app).get('/auth/signup-options');
-    expect(res.body.data).toEqual({ otpRequired: false, trialDays: 7 });
+    expect(res.body.data).toEqual({ otpRequired: false, emailRequired: true, trialDays: 7 });
   });
 
-  it('registers with only an email, or only a phone, and starts the 7-day trial', async () => {
+  it('registers with an email and starts the 7-day trial', async () => {
     const before = Date.now();
     const byEmail = new Client(app);
     expect((await byEmail.send('post', '/auth/register', { ...account, email: 'free@example.com' })).status).toBe(201);
     const me = await byEmail.get('/auth/me');
     expect(new Date(me.body.data.business.trialEndsAt).getTime()).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
+  });
 
+  it('needs an email while there is no SMS gateway (FR-AUTH-07): a phone alone is 422', async () => {
     const phone = nextPhone();
-    expect((await new Client(app).send('post', '/auth/register', { ...account, phone })).status).toBe(201);
+    const res = await new Client(app).send('post', '/auth/register', { ...account, phone });
+    expect(res.status).toBe(422);
+    expect(res.body.error.fields.email).toEqual(['Enter your email. You need it to reset your password.']);
+    expect(await prisma.user.findFirst({ where: { phone } })).toBeNull();
+  });
+
+  it('keeps an unverified phone given with the email, without remembering it for the trial', async () => {
+    const phone = nextPhone();
+    expect((await new Client(app).send('post', '/auth/register', { ...account, phone, email: 'withphone@example.com' })).status).toBe(201);
     // Not verified, so not remembered: the real owner of the number keeps their trial for later.
     expect((await prisma.user.findFirstOrThrow({ where: { phone } })).phoneVerifiedAt).toBeNull();
     expect(await prisma.trialClaim.findUnique({ where: { phone } })).toBeNull();
@@ -64,7 +74,7 @@ describe('Sign-up without SMS codes (OTP_REQUIRED=false) (e2e)', () => {
     const phone = nextPhone();
     await prisma.trialClaim.create({ data: { phone } });
     const seller = new Client(app);
-    expect((await seller.send('post', '/auth/register', { ...account, phone })).status).toBe(201);
+    expect((await seller.send('post', '/auth/register', { ...account, phone, email: 'again@example.com' })).status).toBe(201);
     const me = await seller.get('/auth/me');
     expect(new Date(me.body.data.business.trialEndsAt).getTime()).toBeLessThanOrEqual(Date.now());
   });

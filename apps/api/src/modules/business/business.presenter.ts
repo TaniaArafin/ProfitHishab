@@ -5,6 +5,7 @@ export function toBusinessDto(b: Business): BusinessDto {
   return {
     id: b.id,
     name: b.name,
+    logoUrl: b.logoUrl,
     phone: b.phone,
     address: b.address,
     city: b.city,

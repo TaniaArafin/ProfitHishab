@@ -46,8 +46,8 @@ export function StatusStep({
   return (
     <Card className="flex min-w-0 flex-col gap-5 p-4 sm:p-6">
       <div>
-        <h2 className="font-semibold">Match your statuses</h2>
-        <p className="mt-1 text-sm text-ink-muted">Choose what each status in your file means here.</p>
+        <h2 className="text-lg font-semibold">What do these statuses mean?</h2>
+        <p className="mt-1 text-sm text-ink-muted">We could not recognise every status in your file. Choose the closest one.</p>
       </div>
       {imp.statusValues.length === 0 ? <p className="text-sm text-ink-muted">Your status column is empty.</p> : null}
       <div className="grid grid-cols-[minmax(0,1fr)] gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -69,7 +69,7 @@ export function StatusStep({
       {error ? <Alert variant="destructive">{error.message}</Alert> : null}
       <div className="flex flex-wrap gap-2">
         <Button onClick={proceed} disabled={!complete || pending}>
-          {pending ? 'Checking your file…' : 'Check my file'}
+          {pending ? 'Checking your file…' : 'Review orders'}
         </Button>
         <Button variant="secondary" onClick={onBack} disabled={pending}>
           Back to columns

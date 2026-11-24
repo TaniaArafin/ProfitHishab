@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { hash, verify } from '@node-rs/argon2';
 import {
   normalizePhone,
+  type AccountUpdateInput,
+  type ChangePasswordInput,
   trialEndsAt,
   type LoginInput,
   type Me,
@@ -21,7 +24,7 @@ import { AuthRepository } from './auth.repository';
 import { LoginAttempts } from './login-attempts';
 import { hashOtp, newOtpCode, OTP, otpSendWait } from './otp';
 import { PhoneVerificationRepository } from './phone-verification.repository';
-import { SmsSender } from './sms.sender';
+import { emailRequiredAtSignup, SmsSender } from './sms.sender';
 
 const DAY_MS = 86_400_000;
 
@@ -40,6 +43,13 @@ function sameHash(a: string, b: string): boolean {
   return a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
+/** A Prisma unique-constraint error on a constraint that includes `field` (`meta.target`). */
+function isUniqueViolationOn(error: unknown, field: string): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') return false;
+  const target = error.meta?.target;
+  return Array.isArray(target) ? target.includes(field) : typeof target === 'string' && target.includes(field);
+}
+
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -56,7 +66,7 @@ export class AuthService {
   ) {}
 
   signupOptions(): SignupOptionsDto {
-    return { otpRequired: config().sms.otpRequired, trialDays: TRIAL_DAYS };
+    return { otpRequired: config().sms.otpRequired, emailRequired: emailRequiredAtSignup(), trialDays: TRIAL_DAYS };
   }
 
   /** Registration step 1 (OTP_REQUIRED on): text a one-time code to a phone that is not registered yet. */
@@ -84,6 +94,7 @@ export class AuthService {
   async register(input: RegisterInput, meta: RequestMeta, now = new Date()): Promise<IssuedSession> {
     const email = input.email ?? null;
     const phone = input.phone ?? null;
+    if (!email && emailRequiredAtSignup()) throw AuthError.emailRequired();
     const verify = config().sms.otpRequired;
     if (verify && !phone) throw AuthError.phoneRequired();
     if (email && (await this.repo.emailExists(email))) throw AuthError.emailTaken();
@@ -160,6 +171,48 @@ export class AuthService {
   async me(userId: string, businessId: string): Promise<Me> {
     const [user, business] = await Promise.all([this.repo.findUser(userId), this.business.profile(businessId)]);
     return { user, business };
+  }
+
+  /**
+   * FR-AUTH-09: edit name, email and phone. Another user's email or phone is 409; an email cannot be
+   * removed while it is the only way to reset a password (no SMS gateway), and one of the two must stay.
+   * A new phone was not confirmed by SMS, so it is stored unverified.
+   */
+  async updateAccount(userId: string, input: AccountUpdateInput): Promise<Me['user']> {
+    const current = await this.repo.findUser(userId);
+    const email = input.email === undefined ? current.email : input.email;
+    const phone = input.phone === undefined ? current.phone : input.phone;
+    // Removing an email is refused; an older phone-only account (from before email was required) may stay so.
+    if (!email && current.email && emailRequiredAtSignup()) throw AuthError.emailRequired();
+    if (!email && !phone) throw AuthError.contactRequired();
+    if (email && email !== current.email && (await this.repo.emailExists(email, userId))) throw AuthError.emailTaken();
+    if (phone && phone !== current.phone && (await this.repo.phoneExists(phone, userId))) throw AuthError.phoneTaken();
+
+    const phoneChanged = input.phone !== undefined && input.phone !== current.phone;
+    try {
+      return await this.repo.updateUser(userId, {
+        name: input.name,
+        email: input.email,
+        phone: input.phone,
+        ...(phoneChanged ? { phoneVerifiedAt: null } : {}),
+      });
+    } catch (error) {
+      // Two accounts claiming the same email or phone at once: the unique index decides.
+      if (isUniqueViolationOn(error, 'email')) throw AuthError.emailTaken();
+      if (isUniqueViolationOn(error, 'phone')) throw AuthError.phoneTaken();
+      throw error;
+    }
+  }
+
+  /** FR-AUTH-09: checks the current password, sets the new one and logs out every other device. */
+  async changePassword(auth: { userId: string; sessionId: string }, input: ChangePasswordInput): Promise<void> {
+    if (!(await verify(await this.repo.findPasswordHash(auth.userId), input.currentPassword))) throw AuthError.wrongCurrentPassword();
+    // Hash before opening the transaction (laravel-eloquent: tx-keep-transactions-short).
+    const passwordHash = await hash(input.newPassword);
+    await this.repo.transaction(async (tx) => {
+      await this.repo.updatePassword(auth.userId, passwordHash, tx);
+      await this.repo.revokeOtherSessions(auth.userId, auth.sessionId, tx);
+    });
   }
 
   /**

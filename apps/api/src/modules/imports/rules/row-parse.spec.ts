@@ -1,5 +1,5 @@
 import type { ImportMapping } from '@ph/shared';
-import { dedupeHash, parseAmount, parseImportDate, parseQuantity, parseRow, type NormalizedRow } from './row-parse';
+import { dedupeHash, parseAmount, parseImportDate, parseQuantity, parseRow, rowProblems, type NormalizedRow } from './row-parse';
 
 const ctx = { today: '2026-11-11', couriers: new Map([['pathao', 'courier-1']]) };
 const columns = { phone: 'Phone', product: 'Product', quantity: 'Qty', sellingPrice: 'Price' } as const;
@@ -151,5 +151,42 @@ describe('dedupeHash', () => {
   });
   it('differs when the price differs', () => {
     expect(dedupeHash(row)).not.toBe(dedupeHash({ ...row, unitPrice: 101 }));
+  });
+});
+
+describe('rowProblems', () => {
+  const full: ImportMapping = {
+    columns: { ...columns, orderDate: 'Date', productCost: 'Cost', discount: 'Disc', deliveryCharge: 'Del', courierCost: 'Cour' },
+    statuses: {},
+  };
+
+  it('is empty for a good row, and treats optional empty cells as fine', () => {
+    expect(rowProblems(base, full)).toEqual({});
+    expect(rowProblems({ ...base, Date: '', Cost: '', Disc: '', Del: '', Cour: '' }, full)).toEqual({});
+  });
+
+  it('names each wrong field with what to enter', () => {
+    expect(
+      rowProblems(
+        { Phone: '123', Product: ' ', Qty: '0', Price: 'x', Date: '31/02/2026', Cost: 'a', Disc: 'b', Del: 'c', Cour: 'd' },
+        full,
+      ),
+    ).toEqual({
+      phone: 'Enter a number like 017XXXXXXXX',
+      product: 'Enter the product name',
+      quantity: 'Enter a whole number of 1 or more',
+      sellingPrice: 'Enter an amount like 1250',
+      orderDate: 'Enter a date like 2026-10-31',
+      productCost: 'Enter an amount like 1250',
+      discount: 'Enter an amount like 1250',
+      deliveryCharge: 'Enter an amount like 1250',
+      courierCost: 'Enter an amount like 1250',
+    });
+  });
+
+  it('never flags a field where parseRow accepts the row', () => {
+    const row = { ...base, Date: '05/10/2026', Cost: '৳ 700', Disc: '10', Del: '60 Tk', Cour: '১২০' };
+    expect(parseRow(row, full, ctx).ok).toBe(true);
+    expect(rowProblems(row, full)).toEqual({});
   });
 });

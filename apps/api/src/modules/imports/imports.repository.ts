@@ -167,6 +167,18 @@ export class ImportsRepository {
     >;
   }
 
+  findRow(businessId: string, id: string, rowNumber: number, db: Tx = this.prisma): Promise<ImportRowRecord | null> {
+    return db.importRow.findFirst({
+      where: { importId: id, businessId, rowNumber },
+      select: ROW_SELECT,
+    }) as Promise<ImportRowRecord | null>;
+  }
+
+  /** Replaces one row's cells (an inline fix). The caller re-checks the whole import in the same transaction. */
+  async updateRowCells(businessId: string, id: string, rowNumber: number, raw: Record<string, string>, tx: Tx): Promise<void> {
+    await tx.importRow.updateMany({ where: { importId: id, businessId, rowNumber }, data: { raw } });
+  }
+
   /** The rows marked valid, with what validation stored, by row number (what a commit turns into orders). */
   validRows(businessId: string, id: string, db: Tx): Promise<Array<{ rowNumber: number; normalized: unknown; groupKey: string | null }>> {
     return db.importRow.findMany({

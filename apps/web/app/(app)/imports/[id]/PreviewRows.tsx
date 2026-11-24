@@ -1,13 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { IMPORT_ROW_REASON_LABELS, IMPORT_TARGET_LABELS, type ImportDto, type ImportRowDto, type ImportTarget } from '@ph/shared';
+import {
+  IMPORT_ROW_REASON_LABELS,
+  IMPORT_TARGET_LABELS,
+  type ImportDto,
+  type ImportRowDto,
+  type ImportRowEditDto,
+  type ImportTarget,
+} from '@ph/shared';
 import { Skeleton } from '@/components/ui';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useImportRows } from '@/lib/hooks';
+import { FixRow } from './FixRow';
 
 export type RowTab = 'valid' | 'duplicate' | 'invalid';
 
@@ -26,9 +34,22 @@ function notes(row: ImportRowDto): string {
 }
 
 /** One page of checked rows: the key cells and why a row is skipped (or what to know about it). */
-export function PreviewRows({ imp, status }: { imp: ImportDto; status: RowTab }) {
+export function PreviewRows({
+  imp,
+  status,
+  version,
+  onFixed,
+}: {
+  imp: ImportDto;
+  status: RowTab;
+  /** Raised after an inline fix, so the rows reload. */
+  version: number;
+  onFixed: (result: ImportRowEditDto) => void;
+}) {
   const [page, setPage] = useState(1);
-  const { data, error } = useImportRows(imp.id, status, page, PER_PAGE);
+  const { data, error } = useImportRows(imp.id, status, page, PER_PAGE, version);
+  // The last row of the last page was fixed: step back instead of showing an empty page.
+  if (data && data.rows.length === 0 && page > 1) setPage(page - 1);
   const columns = imp.mapping?.columns ?? {};
   const cell = (row: ImportRowDto, target: ImportTarget) => {
     const col = columns[target];
@@ -41,11 +62,42 @@ export function PreviewRows({ imp, status }: { imp: ImportDto; status: RowTab })
   if (data.rows.length === 0) {
     return (
       <Card>
-        <p className="px-5 py-6 text-sm text-ink-muted">No rows here.</p>
+        <p className="px-5 py-6 text-sm text-ink-muted">{status === 'invalid' ? 'Nothing needs fixing.' : 'No rows here.'}</p>
       </Card>
     );
   }
   const pages = Math.max(1, Math.ceil(data.total / PER_PAGE));
+  const pager =
+    pages > 1 ? (
+      <nav className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="Rows pages">
+        <span className="text-ink-muted tabular">
+          Page {page} of {pages} · {data.total} rows
+        </span>
+        <div className="flex gap-2">
+          <Button variant="secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+            Previous
+          </Button>
+          <Button variant="secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+            Next
+          </Button>
+        </div>
+      </nav>
+    ) : null;
+
+  if (status !== 'valid') {
+    return (
+      <div className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-3">
+          {data.rows.map((row) => (
+            <li key={row.rowNumber}>
+              <FixRow imp={imp} row={row} onFixed={onFixed} />
+            </li>
+          ))}
+        </ul>
+        {pager}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -93,21 +145,7 @@ export function PreviewRows({ imp, status }: { imp: ImportDto; status: RowTab })
         ))}
       </ul>
 
-      {pages > 1 ? (
-        <nav className="flex flex-wrap items-center justify-between gap-3 text-sm" aria-label="Rows pages">
-          <span className="text-ink-muted tabular">
-            Page {page} of {pages} · {data.total} rows
-          </span>
-          <div className="flex gap-2">
-            <Button variant="secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-              Previous
-            </Button>
-            <Button variant="secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>
-              Next
-            </Button>
-          </div>
-        </nav>
-      ) : null}
+      {pager}
     </div>
   );
 }

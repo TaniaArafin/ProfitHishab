@@ -9,5 +9,7 @@ export const metadata: Metadata = { title: 'Create account' };
 export default async function RegisterPage() {
   const [me, options] = await Promise.all([apiGetOptional('/auth/me'), apiGet<{ data: SignupOptionsDto }>('/auth/signup-options')]);
   if (me) redirect('/dashboard');
-  return <RegisterForm otpRequired={options.data.otpRequired} trialDays={options.data.trialDays} />;
+  return (
+    <RegisterForm otpRequired={options.data.otpRequired} emailRequired={options.data.emailRequired} trialDays={options.data.trialDays} />
+  );
 }

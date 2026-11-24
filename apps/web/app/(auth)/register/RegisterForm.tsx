@@ -14,8 +14,20 @@ import { PhoneVerification } from './PhoneVerification';
 
 const BUSINESS_TYPES = ['Clothing & fashion', 'Cosmetics & beauty', 'Electronics & gadgets', 'Food & grocery', 'Home & lifestyle', 'Other'];
 
-/** `otpRequired` comes from the API (OTP_REQUIRED): confirm the phone by SMS, or just email/phone and password. */
-export function RegisterForm({ otpRequired, trialDays }: { otpRequired: boolean; trialDays: number }) {
+/**
+ * From GET /auth/signup-options. `otpRequired` (OTP_REQUIRED): confirm the phone by SMS. `emailRequired`: no SMS
+ * gateway yet, so the email is the only way to reset a password and must be given (FR-AUTH-07).
+ */
+export function RegisterForm({
+  otpRequired,
+  emailRequired,
+  trialDays,
+}: {
+  otpRequired: boolean;
+  emailRequired: boolean;
+  trialDays: number;
+}) {
+  const emailNote = emailRequired ? null : otpRequired ? '(optional)' : '(email or phone is required)';
   const router = useRouter();
   const [error, setError] = useState<ApiError | null>(null);
   const [pending, setPending] = useState(false);
@@ -70,15 +82,15 @@ export function RegisterForm({ otpRequired, trialDays }: { otpRequired: boolean;
       </div>
       {otpRequired ? <PhoneVerification error={error} /> : null}
       <div>
-        <Label htmlFor="email">
-          Email <span className="font-normal text-ink-faint">{otpRequired ? '(optional)' : '(email or phone is required)'}</span>
-        </Label>
-        <Input id="email" name="email" type="email" autoComplete="email" />
+        <Label htmlFor="email">Email {emailNote ? <span className="font-normal text-ink-faint">{emailNote}</span> : null}</Label>
+        <Input id="email" name="email" type="email" autoComplete="email" required={emailRequired} />
         {err('email')}
       </div>
       {otpRequired ? null : (
         <div>
-          <Label htmlFor="phone">Mobile number</Label>
+          <Label htmlFor="phone">
+            Mobile number {emailRequired ? <span className="font-normal text-ink-faint">(optional)</span> : null}
+          </Label>
           <Input id="phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" placeholder="017XXXXXXXX" />
           {err('phone')}
         </div>

@@ -4,6 +4,8 @@ import type { Tx } from '../../common/prisma.service';
 import { BusinessError } from './business.errors';
 import { toBusinessDto, toCourierDto } from './business.presenter';
 import { BusinessRepository } from './business.repository';
+import { toLogoWebp } from './logo.image';
+import { LogoStore } from './logo.store';
 
 /** What the Orders module needs from a business to price a new order. Identities and numbers only. */
 export interface OrderDefaults {
@@ -20,7 +22,10 @@ export interface OrderDefaults {
  */
 @Injectable()
 export class BusinessService {
-  constructor(private readonly repo: BusinessRepository) {}
+  constructor(
+    private readonly repo: BusinessRepository,
+    private readonly logos: LogoStore,
+  ) {}
 
   async profile(businessId: string): Promise<BusinessDto> {
     return toBusinessDto(await this.repo.find(businessId));
@@ -52,6 +57,21 @@ export class BusinessService {
       throw BusinessError.courierNotFound();
     }
     return toBusinessDto(await this.repo.update(businessId, input));
+  }
+
+  /**
+   * FR-BIZ-01: converts the upload to a 256 px WebP, stores it, then points the business at it. The
+   * `?v=` changes on every upload so browsers fetch the new one. File work, so no transaction.
+   */
+  async setLogo(businessId: string, file: Buffer): Promise<BusinessDto> {
+    await this.logos.save(businessId, await toLogoWebp(file));
+    return toBusinessDto(await this.repo.update(businessId, { logoUrl: `/api/business/logo?v=${Date.now()}` }));
+  }
+
+  async removeLogo(businessId: string): Promise<BusinessDto> {
+    const business = toBusinessDto(await this.repo.update(businessId, { logoUrl: null }));
+    await this.logos.remove(businessId);
+    return business;
   }
 
   async updateCourier(businessId: string, courierId: string, input: Partial<CourierInput>): Promise<CourierDto> {

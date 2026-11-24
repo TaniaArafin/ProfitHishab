@@ -481,7 +481,7 @@ describe('Imports (e2e)', () => {
   });
 
   describe('validate, preview and rejected rows', () => {
-    const ROW_KEYS = ['raw', 'reasons', 'rowNumber', 'status', 'warnings'];
+    const ROW_KEYS = ['problems', 'raw', 'reasons', 'rowNumber', 'status', 'warnings'];
     const MAPPING = { phone: 'Mobile', product: 'Item', quantity: 'Qty', sellingPrice: 'Price', externalRef: 'Order ID' };
     const small = (aoa: (string | number)[][]) => {
       const wb = XLSX.utils.book_new();

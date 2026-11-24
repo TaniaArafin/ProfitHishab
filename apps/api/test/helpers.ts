@@ -6,6 +6,7 @@ import request from 'supertest';
 import { configureApp } from '../src/app.factory';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/common/prisma.service';
+import { makeSampleOrders, SAMPLE_MAPPING, SEED_ORDER_REFS } from './fixtures/make-sample-orders';
 
 export const tk = (taka: number) => taka * 100;
 export const CSRF = 'test-csrf-token';
@@ -78,7 +79,10 @@ export async function createTestApp(): Promise<{ app: INestApplication; prisma: 
   return { app, prisma };
 }
 
-/** Registers through both steps (code, then account). Returns the logged-in client and the phone used. */
+/**
+ * Registers through both steps (code, then account). Returns the logged-in client and the phone used.
+ * An email is required at sign-up (no SMS gateway), so `null` registers with `seller-<phone>@test.local`.
+ */
 export async function registerSeller(
   app: INestApplication,
   email: string | null,
@@ -93,9 +97,46 @@ export async function registerSeller(
     businessName,
     phone,
     code: OTP_CODE,
-    ...(email ? { email } : {}),
+    email: email ?? `seller-${phone}@test.local`,
     password: 'secret-pass-1',
   });
   if (res.status !== 201) throw new Error(`register failed: ${res.status} ${JSON.stringify(res.body)}`);
   return Object.assign(client, { phone });
+}
+
+/**
+ * Imports the SRS 11.1 sample sheet for this seller: seeds the three existing orders the sheet's
+ * duplicate Order IDs point at (dated 2026-09-01), then upload → mapping → validate → commit.
+ * Afterwards October 2026 holds exactly the 225 sample orders (sales ৳5,20,000).
+ */
+export async function importSampleOrders(app: INestApplication, seller: Client): Promise<void> {
+  const prisma = app.get(PrismaService);
+  const businessId = (await seller.get('/auth/me')).body.data.business.id as string;
+  const customer = await prisma.customer.create({ data: { businessId, name: 'Seeded', phone: '01799999999' } });
+  for (const [k, externalRef] of SEED_ORDER_REFS.entries()) {
+    await prisma.order.create({
+      data: {
+        businessId,
+        orderNo: 900001 + k,
+        customerId: customer.id,
+        status: 'delivered',
+        orderDate: new Date('2026-09-01'),
+        subtotal: 100000,
+        total: 100000,
+        source: 'import',
+        externalRef,
+      },
+    });
+  }
+  const up = await seller.upload('/imports', 'file', makeSampleOrders(), 'orders.xlsx');
+  if (up.status !== 201) throw new Error(`upload failed: ${up.status}`);
+  const id = up.body.data.id as string;
+  for (const [method, path, body] of [
+    ['put', `/imports/${id}/mapping`, SAMPLE_MAPPING],
+    ['post', `/imports/${id}/validate`, undefined],
+    ['post', `/imports/${id}/commit`, undefined],
+  ] as const) {
+    const res = await seller.send(method, path, body);
+    if (res.status !== 200) throw new Error(`${path} failed: ${res.status} ${JSON.stringify(res.body)}`);
+  }
 }

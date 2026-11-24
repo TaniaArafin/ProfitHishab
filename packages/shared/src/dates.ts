@@ -81,3 +81,18 @@ export function resolvePeriod(
   const preset = (PERIOD_PRESETS as readonly string[]).includes(query.period ?? '') ? (query.period as PeriodPreset) : 'this-month';
   return { ...presetPeriod(preset, today), preset };
 }
+
+/** The current month (`YYYY-MM`) in the business timezone. */
+export function currentMonthIn(timezone: string = DEFAULT_TIMEZONE, now: Date = new Date()): string {
+  return todayIn(timezone, now).slice(0, 7);
+}
+
+/** The 12 months (`YYYY-MM`, oldest first) ending at `toMonth`, and the period they cover. */
+export function lastTwelveMonths(toMonth: string): { period: Period; months: string[] } {
+  const [y, m] = toMonth.split('-').map(Number) as [number, number];
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(Date.UTC(y, m - 12 + i, 1));
+    return d.toISOString().slice(0, 7);
+  });
+  return { months, period: { from: `${months[0]}-01`, to: monthPeriod(`${toMonth}-01`).to } };
+}

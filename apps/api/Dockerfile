@@ -41,6 +41,9 @@ COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
+# Business logos (STORAGE_DIR, default ./storage). Mount a volume here so they survive a new image.
+RUN mkdir -p /app/apps/api/storage && chown node:node /app/apps/api/storage
+VOLUME /app/apps/api/storage
 USER node
 WORKDIR /app/apps/api
 EXPOSE 4000

@@ -59,19 +59,15 @@ const otpCode = z
  * GET /auth/signup-options): with it on, `phone` and its SMS `code` are required (the API checks);
  * with it off, an email or a phone is enough and `code` is ignored.
  */
+const email = z.string().trim().toLowerCase().email('Enter a valid email');
+
 export const registerSchema = z
   .object({
     name: z.string().trim().min(2, 'Enter your name').max(100),
     businessName: z.string().trim().min(2, 'Enter your business name').max(120),
     phone: phone.optional().or(z.literal('').transform(() => undefined)),
     code: otpCode.optional().or(z.literal('').transform(() => undefined)),
-    email: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .email('Enter a valid email')
-      .optional()
-      .or(z.literal('').transform(() => undefined)),
+    email: email.optional().or(z.literal('').transform(() => undefined)),
     password: newPassword,
     businessType: z.string().trim().max(60).optional(),
     city: z.string().trim().max(60).optional(),
@@ -97,6 +93,21 @@ export const resetPasswordSchema = z.object({
   password: newPassword,
 });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+/** FR-AUTH-09: edit the account. Omitted fields stay as they are; an empty email or phone clears it. */
+export const accountUpdateSchema = z.object({
+  name: z.string().trim().min(2, 'Enter your name').max(100).optional(),
+  email: email.optional().or(z.literal('').transform(() => null)),
+  phone: phone.optional().or(z.literal('').transform(() => null)),
+});
+export type AccountUpdateInput = z.infer<typeof accountUpdateSchema>;
+
+/** FR-AUTH-09: change the password; the current one is checked first. */
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Enter your current password').max(200),
+  newPassword,
+});
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 // ── Business & couriers ────────────────────────────────────────────────
 
@@ -262,6 +273,19 @@ export const periodQuerySchema = z.object({
   to: z.string().optional(),
 });
 
+/** Reports (FR-REP): the last month shown (`YYYY-MM`, default the current month) and JSON, CSV or Excel (.xlsx). */
+const reportFormat = z.enum(['json', 'csv', 'xlsx']).default('json');
+export const reportMonthsQuerySchema = z.object({
+  to: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Use a month like 2026-10')
+    .optional(),
+  format: reportFormat,
+});
+export type ReportMonthsQuery = z.infer<typeof reportMonthsQuerySchema>;
+export const productReportQuerySchema = periodQuerySchema.extend({ format: reportFormat });
+export type ProductReportQuery = z.infer<typeof productReportQuerySchema>;
+
 // ── Platform admin ─────────────────────────────────────────────────────
 
 export const adminBusinessListQuerySchema = z.object({
@@ -351,6 +375,15 @@ export const importRowsQuerySchema = z.object({
   status: z.enum(IMPORT_ROW_STATUSES).optional(),
 });
 export type ImportRowsQuery = z.infer<typeof importRowsQuerySchema>;
+
+/** A fix typed on the import preview: new text for some cells of one row, keyed by the file's headers. */
+export const importRowEditSchema = z.object({
+  cells: z
+    .record(z.string().max(500, 'This value is too long'))
+    .refine((cells) => Object.keys(cells).length > 0, 'Change at least one value')
+    .refine((cells) => Object.keys(cells).length <= 50, 'Too many values'),
+});
+export type ImportRowEditInput = z.infer<typeof importRowEditSchema>;
 
 export const importListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

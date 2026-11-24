@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 // Tests always run against the separate test database created by docker/init-test-db.sql.
 process.env.DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://profithishab:profithishab@localhost:5434/profithishab_test?schema=public';
@@ -23,3 +26,5 @@ if (process.env.TEST_TYPESENSE_URL) {
 // Receiving numbers for the billing page (both methods on).
 process.env.PAYMENT_BKASH_NUMBER = '01700000001';
 process.env.PAYMENT_NAGAD_NUMBER = '01800000001';
+// Business logos are written here, never into the repository.
+process.env.STORAGE_DIR = join(tmpdir(), `profithishab-test-storage-${process.pid}`);

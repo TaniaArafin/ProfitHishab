@@ -33,6 +33,16 @@ export class ImportError extends AppError {
     return new ImportError(404, 'import_not_found', 'Import not found.');
   }
 
+  static rowNotFound(): ImportError {
+    return new ImportError(404, 'import_row_not_found', 'This row is not in the file.');
+  }
+
+  /** 422: an edit names a column the file does not have. */
+  static cellNotInFile(column: string): ImportError {
+    const message = `This file has no column "${column}".`;
+    return new ImportError(422, 'validation_failed', message, { [`cells.${column}`]: [message] });
+  }
+
   /** A step (preview, confirm) on an import that is not in the state that step needs. */
   static notReady(): ImportError {
     return new ImportError(409, 'import_not_ready', 'This import is not ready for that step.');

@@ -21,6 +21,7 @@ const saree: ProductDto = {
 const business: BusinessDto = {
   id: 'b1',
   name: 'Shop',
+  logoUrl: null,
   phone: null,
   address: null,
   city: null,

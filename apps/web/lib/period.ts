@@ -32,3 +32,10 @@ export function periodLabel(from: string, to: string): string {
 export function formatDay(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
+
+const monthName = new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+/** "2026-10" → "Oct 2026". */
+export function monthLabel(month: string): string {
+  return monthName.format(new Date(`${month}-01T00:00:00Z`));
+}

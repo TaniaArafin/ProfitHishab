@@ -26,6 +26,8 @@ export interface Paginated<T> {
 export interface SignupOptionsDto {
   /** True: the phone is confirmed with an SMS code. False (test phase): email or phone and a password. */
   otpRequired: boolean;
+  /** True while there is no SMS gateway (FR-AUTH-07): an email is required, since it is the only way to reset a password. */
+  emailRequired: boolean;
   /** Every new business gets this many free days, in either mode. */
   trialDays: number;
 }
@@ -46,6 +48,8 @@ export interface Me {
 export interface BusinessDto {
   id: string;
   name: string;
+  /** Web path of the logo (`/api/business/logo?v=…`), or null when there is none (FR-BIZ-01). */
+  logoUrl: string | null;
   phone: string | null;
   address: string | null;
   city: string | null;
@@ -250,6 +254,35 @@ export interface ProductProfitReportDto {
   };
 }
 
+/** FR-REP-01: one month of the monthly profit report. `month` is `YYYY-MM`. */
+export interface MonthlyProfitRowDto {
+  month: string;
+  statement: ProfitStatement;
+  kpis: ProfitKpis;
+}
+
+export interface MonthlyProfitReportDto {
+  /** 12 months, oldest first. */
+  months: MonthlyProfitRowDto[];
+  total: { statement: ProfitStatement; kpis: ProfitKpis };
+}
+
+/** FR-REP-03: `amounts[i]` is the spend in `months[i]`. */
+export interface ExpenseReportRowDto {
+  categoryId: string;
+  categoryName: string;
+  kind: ExpenseKind;
+  amounts: number[];
+  total: number;
+}
+
+export interface ExpenseReportDto {
+  months: string[];
+  rows: ExpenseReportRowDto[];
+  monthTotals: number[];
+  total: number;
+}
+
 export type InsightSeverity = 'critical' | 'warning' | 'info' | 'good';
 
 export interface InsightDto {
@@ -387,6 +420,14 @@ export interface ImportRowDto {
   reasons: ImportRowReason[];
   warnings: string[];
   raw: Record<string, string>;
+  /** On an invalid row: what is wrong with each field, shown beside that field. */
+  problems: Partial<Record<ImportTarget, string>>;
+}
+
+/** Response of PATCH /imports/:id/rows/:rowNumber: the row and the import's fresh counts. */
+export interface ImportRowEditDto {
+  import: ImportDto;
+  row: ImportRowDto;
 }
 
 export interface ImportCommitResultDto {

@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { BillingMethod } from '@ph/shared';
 
@@ -22,6 +23,8 @@ export const envSchema = z
       .transform((v) => v === 'true'),
     SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
     RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
+    /** Uploaded files (business logos), outside the web root. Relative paths resolve from the working directory. */
+    STORAGE_DIR: z.string().min(1).default('storage'),
     REGISTER_LIMIT_PER_15_MINUTES: z.coerce.number().int().positive().default(10),
     /** Forgot-password and reset requests per IP (flood guard; the 3-links-an-hour rule is per account). */
     PASSWORD_RESET_LIMIT_PER_15_MINUTES: z.coerce.number().int().positive().default(10),
@@ -130,6 +133,7 @@ export type AppConfig = Readonly<{
   search: { url: string; apiKey: string; collection: string } | null;
   sms: { otpRequired: boolean; driver: 'log'; fixedCode: string | null };
   webOrigin: string;
+  storageDir: string;
   mail: {
     from: string;
     smtp: { host: string; port: number; secure: boolean; user: string | null; pass: string | null } | null;
@@ -165,6 +169,7 @@ export function config(): AppConfig {
         : null,
     sms: { otpRequired: env.OTP_REQUIRED, driver: env.SMS_DRIVER, fixedCode: env.OTP_FIXED_CODE ?? null },
     webOrigin: env.WEB_ORIGIN.replace(/\/+$/, ''),
+    storageDir: resolve(env.STORAGE_DIR),
     mail: {
       from: env.MAIL_FROM,
       smtp:

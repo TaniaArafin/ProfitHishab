@@ -21,6 +21,7 @@ describe('Registration codes and the 7-day free trial (e2e)', () => {
   const account = (phone: string, code = OTP_CODE) => ({
     name: 'Rahima',
     businessName: 'Rahima Shop',
+    email: `rahima-${phone}@example.com`,
     phone,
     code,
     password: 'secret-pass-1',
@@ -29,7 +30,7 @@ describe('Registration codes and the 7-day free trial (e2e)', () => {
   it('tells the sign-up form that a code is required, and the trial length', async () => {
     const res = await new Client(app).get('/auth/signup-options');
     expect(res.status).toBe(200);
-    expect(res.body.data).toEqual({ otpRequired: true, trialDays: 7 });
+    expect(res.body.data).toEqual({ otpRequired: true, emailRequired: true, trialDays: 7 });
   });
 
   describe('sending a code', () => {
@@ -98,13 +99,23 @@ describe('Registration codes and the 7-day free trial (e2e)', () => {
       expect(await prisma.user.findFirst({ where: { phone: other } })).toBeNull();
     });
 
-    it('uses the code once, marks the phone verified, and email is optional', async () => {
+    it('uses the code once and marks the phone verified', async () => {
       const seller = await registerSeller(app, null);
       const otp = await prisma.phoneOtp.findFirstOrThrow({ where: { phone: seller.phone } });
       expect(otp.consumedAt).not.toBeNull();
       const user = await prisma.user.findFirstOrThrow({ where: { phone: seller.phone } });
       expect(user.phoneVerifiedAt).not.toBeNull();
-      expect(user.email).toBeNull();
+    });
+
+    it('needs an email as well while there is no SMS gateway (FR-AUTH-07)', async () => {
+      const client = new Client(app);
+      const phone = nextPhone();
+      expect((await client.send('post', '/auth/otp', { phone })).status).toBe(202);
+      const res = await client.send('post', '/auth/register', { ...account(phone), email: undefined });
+      expect(res.status).toBe(422);
+      expect(res.body.error.fields.email).toBeDefined();
+      // The code is not used up by the refused attempt.
+      expect((await prisma.phoneOtp.findFirstOrThrow({ where: { phone } })).consumedAt).toBeNull();
     });
 
     it('rolls everything back, code included, when registration fails partway', async () => {

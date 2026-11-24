@@ -8,6 +8,7 @@ import {
   type ImportRowReason,
 } from '@ph/shared';
 import type { ImportRecord, ImportRowRecord } from './imports.repository';
+import { rowProblems } from './rules/row-parse';
 
 /** What the service works out for one import beyond its own columns. */
 export interface ImportDetail {
@@ -71,9 +72,16 @@ function verdictOf(errors: unknown): { reasons: ImportRowReason[]; warnings: str
   };
 }
 
+const DUPLICATE_REF_HINT = 'This order ID is already imported. Enter a new one if this is a different order.';
+
 /** One row of the preview: its cells as uploaded and the verdict, never the normalised values. */
-export function toImportRowDto(row: ImportRowRecord): ImportRowDto {
-  return { rowNumber: row.rowNumber, status: row.status, ...verdictOf(row.errors), raw: toRawCells(row.raw) };
+export function toImportRowDto(row: ImportRowRecord, mapping: ImportMapping | null): ImportRowDto {
+  const raw = toRawCells(row.raw);
+  const verdict = verdictOf(row.errors);
+  let problems: ImportRowDto['problems'] = {};
+  if (row.status === 'invalid' && mapping) problems = rowProblems(raw, mapping);
+  else if (verdict.reasons.includes('duplicate_ref')) problems = { externalRef: DUPLICATE_REF_HINT };
+  return { rowNumber: row.rowNumber, status: row.status, ...verdict, raw, problems };
 }
 
 const STATUS_LABELS: Record<string, string> = { duplicate: 'Duplicate', invalid: 'Invalid' };

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { config } from '../../config';
 
 /**
  * Sends a text message. Chosen by `SMS_DRIVER` in config (laravel-patterns: config-select-deployable-variation).
@@ -17,4 +18,12 @@ export class LogSmsSender extends SmsSender {
     this.logger.log(`SMS to ${phone}: ${text}`);
     return Promise.resolve();
   }
+}
+
+/**
+ * FR-AUTH-07: without a real SMS gateway there is no reset by SMS, so a new account must give an
+ * email (the only way to reset a password). Turns false once a gateway driver exists.
+ */
+export function emailRequiredAtSignup(): boolean {
+  return config().sms.driver === 'log';
 }

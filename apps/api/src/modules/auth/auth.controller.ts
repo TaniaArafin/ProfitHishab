@@ -1,11 +1,15 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
+  accountUpdateSchema,
+  changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
   otpRequestSchema,
   registerSchema,
   resetPasswordSchema,
+  type AccountUpdateInput,
+  type ChangePasswordInput,
   type ForgotPasswordInput,
   type LoginInput,
   type OtpRequestInput,
@@ -104,6 +108,23 @@ export class AuthController {
   @Get('me')
   async me(@Auth() auth: AuthContext) {
     return { data: await this.auth.me(auth.userId, auth.businessId) };
+  }
+
+  /** FR-AUTH-09. Allowed after the trial: a seller can always fix how they log in. */
+  @Patch('me')
+  @AllowAfterTrial()
+  async updateMe(@Auth() auth: AuthContext, @Body(zod(accountUpdateSchema)) body: AccountUpdateInput) {
+    return { data: await this.auth.updateAccount(auth.userId, body) };
+  }
+
+  /** FR-AUTH-09. Keeps this session and logs out every other device. Allowed after the trial (account security). */
+  @Post('password/change')
+  @HttpCode(200)
+  @AllowAfterTrial()
+  @Throttle({ default: { limit: 10, ttl: FIFTEEN_MIN } })
+  async changePassword(@Auth() auth: AuthContext, @Body(zod(changePasswordSchema)) body: ChangePasswordInput) {
+    await this.auth.changePassword(auth, body);
+    return { data: { ok: true } };
   }
 
   private setSessionCookie(res: Response, session: IssuedSession): void {

@@ -7,11 +7,14 @@ import {
   type ImportDto,
   type ImportMapping,
   type ImportRowDto,
+  type ImportRowEditDto,
+  type ImportRowEditInput,
   type ImportRowsQuery,
   type ImportStatus,
   type ImportUndoResultDto,
 } from '@ph/shared';
 import type { AuthContext } from '../../common/auth';
+import type { Tx } from '../../common/prisma.service';
 import { toCsv } from '../../common/csv';
 import { BusinessService } from '../business/business.service';
 import { CustomersService } from '../customers/customers.service';
@@ -145,20 +148,35 @@ export class ImportsService {
       const imp = await this.repo.find(businessId, id, tx);
       const mapping = parseMapping(imp?.mapping);
       if (!mapping) throw ImportError.notReady();
-
-      const rows = await this.repo.allRows(businessId, id, tx);
-      const couriers = await this.business.couriersByName(businessId, tx);
-      const prepared = prepareRows(
-        rows.map((r) => ({ rowNumber: r.rowNumber, raw: toRawCells(r.raw) })),
-        mapping,
-        { today: todayIn(), couriers },
-      );
-      const existing = await this.orders.existingImportKeys(businessId, prepared.refs, prepared.hashes, tx);
-      const { results, counts } = rowVerdicts(prepared, existing);
-      await this.repo.writeValidation(id, results, tx);
-      await this.repo.setStatus(id, 'validated', counts, tx);
+      await this.checkRows(businessId, id, mapping, tx);
     });
     return this.show(businessId, id);
+  }
+
+  /**
+   * An inline fix on the preview: sets some cells of one row, then re-checks the whole import in the
+   * same transaction, because one row can change what counts as a duplicate or a conflict elsewhere.
+   */
+  async editRow(businessId: string, id: string, rowNumber: number, input: ImportRowEditInput): Promise<ImportRowEditDto> {
+    const mapping = await this.repo.transaction(async (tx) => {
+      const locked = await this.repo.lockForUpdate(businessId, id, tx);
+      if (!locked) throw ImportError.notFound();
+      if (locked.status !== 'validated') throw ImportError.notReady();
+      const imp = await this.repo.find(businessId, id, tx);
+      const parsed = parseMapping(imp?.mapping);
+      if (!imp || !parsed) throw ImportError.notReady();
+      const unknown = Object.keys(input.cells).find((column) => !imp.headers.includes(column));
+      if (unknown !== undefined) throw ImportError.cellNotInFile(unknown);
+      const row = await this.repo.findRow(businessId, id, rowNumber, tx);
+      if (!row) throw ImportError.rowNotFound();
+
+      await this.repo.updateRowCells(businessId, id, rowNumber, { ...toRawCells(row.raw), ...input.cells }, tx);
+      await this.checkRows(businessId, id, parsed, tx);
+      return parsed;
+    });
+    const [imp, row] = await Promise.all([this.show(businessId, id), this.repo.findRow(businessId, id, rowNumber)]);
+    if (!row) throw ImportError.rowNotFound();
+    return { import: imp, row: toImportRowDto(row, mapping) };
   }
 
   /**
@@ -312,9 +330,11 @@ export class ImportsService {
 
   /** One page of rows with their verdicts; a foreign id is 404, not an empty page. */
   async rows(businessId: string, id: string, query: ImportRowsQuery): Promise<{ rows: ImportRowDto[]; total: number }> {
-    if (!(await this.repo.find(businessId, id))) throw ImportError.notFound();
+    const imp = await this.repo.find(businessId, id);
+    if (!imp) throw ImportError.notFound();
+    const mapping = parseMapping(imp.mapping);
     const { rows, total } = await this.repo.rows(businessId, id, query);
-    return { rows: rows.map(toImportRowDto), total };
+    return { rows: rows.map((row) => toImportRowDto(row, mapping)), total };
   }
 
   /** The duplicate and invalid rows as CSV: the original columns plus Row, Status and Reason. */
@@ -326,6 +346,21 @@ export class ImportsService {
       [...imp.headers, 'Row', 'Status', 'Reason'],
       rows.map((r) => toRejectedCsvRow(imp.headers, r)),
     );
+  }
+
+  /** Every row's verdict, written in one UPDATE, inside the caller's transaction. */
+  private async checkRows(businessId: string, id: string, mapping: ImportMapping, tx: Tx): Promise<void> {
+    const rows = await this.repo.allRows(businessId, id, tx);
+    const couriers = await this.business.couriersByName(businessId, tx);
+    const prepared = prepareRows(
+      rows.map((r) => ({ rowNumber: r.rowNumber, raw: toRawCells(r.raw) })),
+      mapping,
+      { today: todayIn(), couriers },
+    );
+    const existing = await this.orders.existingImportKeys(businessId, prepared.refs, prepared.hashes, tx);
+    const { results, counts } = rowVerdicts(prepared, existing);
+    await this.repo.writeValidation(id, results, tx);
+    await this.repo.setStatus(id, 'validated', counts, tx);
   }
 
   private async toDto(businessId: string, imp: ImportRecord): Promise<ImportDto> {
