@@ -175,4 +175,25 @@ describe('Editing an import row (e2e)', () => {
     spy.mockRestore();
     expect((await rawOf(id, 3)).Phone).toBe('12345');
   });
+
+  it('fixes one row of a 5,000-row file quickly', async () => {
+    const owner = await registerSeller(app, 'big@rows.test', 'Big Edit Shop');
+    const lines = Array.from(
+      { length: 5000 },
+      (_, i) => `B-${i},2026-10-05,01${7 + (i % 2)}${String(30_000_000 + i)},Product ${i % 50},1,500,`,
+    );
+    lines[2499] = 'B-2499,2026-10-05,123,Product 1,1,500,'; // row 2501: a bad phone
+    const id = await checked(owner, [HEADERS, ...lines].join('\n'));
+    const times: number[] = [];
+    for (const phone of ['124', '01912345678']) {
+      const started = Date.now();
+      const res = await edit(id, 2501, { Phone: phone }, owner);
+      times.push(Date.now() - started);
+      expect(res.status).toBe(200);
+    }
+    process.stdout.write(`ROW EDIT TIMES (ms): ${times.join(', ')}\n`);
+    expect((await seller.get(`/imports/${id}`)).status).toBe(404); // another business still cannot see it
+    expect(((await owner.get(`/imports/${id}`)).body.data as ImportDto).counts).toMatchObject({ valid: 5000, invalid: 0 });
+    expect(Math.max(...times)).toBeLessThan(400);
+  }, 60_000);
 });

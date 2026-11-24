@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useImportRows } from '@/lib/hooks';
+import { cn } from '@/lib/utils';
 import { FixRow } from './FixRow';
 
 export type RowTab = 'valid' | 'duplicate' | 'invalid';
@@ -56,6 +57,7 @@ export function PreviewRows({
     return col ? (row.raw[col] ?? '') : '';
   };
   const notesLabel = status === 'valid' ? 'Notes' : 'Reason';
+  const [editing, setEditing] = useState<number | null>(null);
 
   if (error) return <Alert variant="destructive">{error.message}</Alert>;
   if (!data) return <Skeleton className="h-40 w-full" />;
@@ -84,20 +86,38 @@ export function PreviewRows({
       </nav>
     ) : null;
 
-  if (status !== 'valid') {
+  const fixable = status !== 'valid';
+  const editingRow = data.rows.find((r) => r.rowNumber === editing);
+
+  /** A wrong value: a thin red border, and a click opens the row to fix it. */
+  const value = (row: ImportRowDto, t: ImportTarget) => {
+    const text = cell(row, t);
+    if (!fixable || !row.problems[t]) return text;
     return (
-      <div className="flex flex-col gap-3">
-        <ul className="flex flex-col gap-3">
-          {data.rows.map((row) => (
-            <li key={row.rowNumber}>
-              <FixRow imp={imp} row={row} onFixed={onFixed} />
-            </li>
-          ))}
-        </ul>
-        {pager}
-      </div>
+      <button
+        type="button"
+        aria-label={`Fix row ${row.rowNumber}: ${IMPORT_TARGET_LABELS[t]} ${text}`.trimEnd()}
+        onClick={() => setEditing(row.rowNumber)}
+        className="max-w-full truncate rounded-md border border-loss px-1.5 py-0.5 text-left hover:bg-loss-soft"
+      >
+        {text || '(empty)'}
+      </button>
     );
-  }
+  };
+  /** The reason, which also opens the row (the only way in when no shown value is wrong). */
+  const reason = (row: ImportRowDto, className: string) =>
+    fixable ? (
+      <button
+        type="button"
+        aria-label={`Fix row ${row.rowNumber}: ${notes(row)}`}
+        onClick={() => setEditing(row.rowNumber)}
+        className={cn('text-left text-loss underline decoration-loss/40 underline-offset-2 hover:decoration-loss', className)}
+      >
+        {notes(row)}
+      </button>
+    ) : (
+      <span className={className}>{notes(row)}</span>
+    );
 
   return (
     <div className="flex flex-col gap-3">
@@ -118,10 +138,10 @@ export function PreviewRows({
                 <TableCell className="tabular text-ink-muted">{row.rowNumber}</TableCell>
                 {SHOWN.map((t) => (
                   <TableCell key={t} className="max-w-[12rem] truncate">
-                    {cell(row, t)}
+                    {value(row, t)}
                   </TableCell>
                 ))}
-                <TableCell className={status === 'valid' ? 'text-ink-muted' : 'text-loss'}>{notes(row)}</TableCell>
+                <TableCell>{reason(row, status === 'valid' ? 'text-ink-muted' : 'text-loss')}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -136,16 +156,19 @@ export function PreviewRows({
                 <span className="truncate font-semibold">{cell(row, 'product') || '—'}</span>
                 <span className="shrink-0 text-xs text-ink-faint tabular">Row {row.rowNumber}</span>
               </div>
-              <div className="truncate text-xs text-ink-muted tabular">
-                {cell(row, 'phone')} · {cell(row, 'quantity')} × {cell(row, 'sellingPrice')}
+              <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-ink-muted tabular">
+                {value(row, 'phone')} · {value(row, 'quantity')} × {value(row, 'sellingPrice')}
               </div>
-              {notes(row) ? <div className={status === 'valid' ? 'text-xs text-ink-muted' : 'text-xs text-loss'}>{notes(row)}</div> : null}
+              {notes(row) ? reason(row, status === 'valid' ? 'text-xs text-ink-muted' : 'text-xs text-loss') : null}
             </Card>
           </li>
         ))}
       </ul>
 
       {pager}
+      {editingRow ? (
+        <FixRow key={editingRow.rowNumber} imp={imp} row={editingRow} onFixed={onFixed} onClose={() => setEditing(null)} />
+      ) : null}
     </div>
   );
 }

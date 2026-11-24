@@ -10,10 +10,11 @@ import { formatDay } from '@/lib/period';
  * After the import. Right after committing it has the commit result (date range, missing costs).
  * Opened later, only the stored order count is known, so it links to the dashboard as it is.
  */
-export function ResultStep(props: { result: ImportCommitResultDto } | { importedOrders: number }) {
+export function ResultStep(props: { result: ImportCommitResultDto; seconds?: number } | { importedOrders: number }) {
   const result = 'result' in props ? props.result : null;
   const orders = result ? result.ordersCreated : 'importedOrders' in props ? props.importedOrders : 0;
   const missing = result?.missingCostProducts ?? 0;
+  const seconds = 'seconds' in props ? props.seconds : undefined;
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
@@ -26,6 +27,9 @@ export function ResultStep(props: { result: ImportCommitResultDto } | { imported
               <p className="mt-1 text-sm text-ink-muted tabular">
                 {result.customersCreated} new customers and {result.productsCreated} new products were added.
               </p>
+            ) : null}
+            {seconds !== undefined ? (
+              <p className="mt-1 text-xs text-ink-faint tabular">Done in {seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s.</p>
             ) : null}
           </div>
         </div>

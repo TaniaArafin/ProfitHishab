@@ -20,7 +20,7 @@ type View =
   | { step: 'mapping'; imp: ImportDto; reviewStatuses?: boolean }
   | { step: 'statuses'; imp: ImportDto }
   | { step: 'preview'; imp: ImportDto }
-  | { step: 'result'; result: ImportCommitResultDto };
+  | { step: 'result'; result: ImportCommitResultDto; seconds: number };
 
 /** Before the seller acts, the server's status picks the step. */
 function initialView(imp: ImportDto): View | 'imported' | 'undone' | 'failed' {
@@ -85,11 +85,11 @@ export function ImportWizard({ imp }: { imp: ImportDto }) {
             onBack={() => setView({ step: 'mapping', imp: current.imp, reviewStatuses: true })}
             onRechecked={showPreview}
             onRowFixed={(updated) => setView({ step: 'preview', imp: updated })}
-            onImported={(result) => setView({ step: 'result', result })}
+            onImported={(result, seconds) => setView({ step: 'result', result, seconds })}
           />
         );
       case 'result':
-        return <ResultStep result={current.result} />;
+        return <ResultStep result={current.result} seconds={current.seconds} />;
     }
   };
 

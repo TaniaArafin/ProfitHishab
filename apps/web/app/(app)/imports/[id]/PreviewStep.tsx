@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { api, type ApiError } from '@/lib/client-api';
 import { cn } from '@/lib/utils';
+import { ImportBusy } from '../ImportBusy';
 import { checkFile, LONG_CALL } from './checkFile';
 import { MatchSummary } from './MatchSummary';
 import { PreviewRows, type RowTab } from './PreviewRows';
@@ -31,7 +32,8 @@ export function PreviewStep({
   onRechecked: (checked: ImportDto) => void;
   /** An inline fix was saved: the import with its fresh counts. */
   onRowFixed: (updated: ImportDto) => void;
-  onImported: (result: ImportCommitResultDto) => void;
+  /** `seconds`: how long the import took, as the seller waited for it. */
+  onImported: (result: ImportCommitResultDto, seconds: number) => void;
 }) {
   const c = imp.counts;
   const [tab, setTab] = useState<RowTab>(c.invalid > 0 ? 'invalid' : c.valid > 0 || c.duplicate === 0 ? 'valid' : 'duplicate');
@@ -44,13 +46,14 @@ export function PreviewStep({
   async function commit() {
     setPending('importing');
     setError(null);
+    const started = performance.now();
     const res = await api<ImportCommitResultDto>('POST', `/imports/${imp.id}/commit`, undefined, {}, LONG_CALL);
     if (!res.ok) {
       setPending(null);
       setError(res.error);
       return;
     }
-    onImported(res.data);
+    onImported(res.data, (performance.now() - started) / 1000);
   }
 
   function rowFixed({ import: updated, row }: ImportRowEditDto) {
@@ -160,6 +163,8 @@ export function PreviewStep({
         </div>
         <MatchSummary imp={imp} />
       </Card>
+
+      {pending === 'importing' ? <ImportBusy step="import" orders={c.orders} /> : null}
 
       <section className="flex min-w-0 flex-col gap-3" aria-label="Checked rows">
         <div role="tablist" aria-label="Rows by result" className="grid grid-cols-3 gap-2">

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ImportDto } from '@ph/shared';
 import type { ApiError } from '@/lib/client-api';
@@ -79,6 +79,25 @@ describe('UploadStep', () => {
   it('leaves a file with a missing required column for the seller to match', async () => {
     await send(uploaded({ suggestedColumns: { phone: 'Phone', product: 'Product', sellingPrice: 'Price' }, statusValues: [] }));
     expect(api).not.toHaveBeenCalled();
+  });
+
+  it('shows the upload percentage while the file is sent', async () => {
+    let progress: (f: number) => void = () => {};
+    let finish: (v: unknown) => void = () => {};
+    upload.mockImplementation((_path, _file, opts) => {
+      progress = (opts as { onProgress: (f: number) => void }).onProgress;
+      return new Promise((resolve) => (finish = resolve));
+    });
+    render(<UploadStep />);
+    fireEvent.change(screen.getByLabelText(/Your file/), { target: { files: [new File(['x'], 'orders.xlsx')] } });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload and review' }));
+    act(() => progress(0.6));
+    expect(screen.getByRole('progressbar', { name: 'Uploading your file' })).toHaveAttribute('aria-valuenow', '60');
+    act(() => progress(1));
+    // Every byte sent: the server is now reading the file.
+    expect(screen.getByRole('progressbar', { name: 'Read your file' })).toBeInTheDocument();
+    act(() => finish({ ok: true, data: uploaded(), body: {} }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/imports/imp1'));
   });
 
   it('still opens the import when the automatic check fails', async () => {

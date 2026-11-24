@@ -12,6 +12,7 @@ import { fieldError, upload, type ApiError } from '@/lib/client-api';
 import { navigateFresh } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 import { prepareImport } from '../[id]/checkFile';
+import { ImportBusy } from '../ImportBusy';
 import { ImportProgress } from '../ImportProgress';
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -22,7 +23,8 @@ const size = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024
 export function UploadStep() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [pending, setPending] = useState<'uploading' | 'checking' | null>(null);
+  const [pending, setPending] = useState<'upload' | 'read' | 'check' | null>(null);
+  const [uploaded, setUploaded] = useState(0);
   const [error, setError] = useState<ApiError | null>(null);
   const [dragging, setDragging] = useState(false);
   const tooLarge = file !== null && file.size > MAX_BYTES;
@@ -41,15 +43,22 @@ export function UploadStep() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!file || tooLarge) return;
-    setPending('uploading');
+    setPending('upload');
+    setUploaded(0);
     setError(null);
-    const res = await upload<ImportDto>('/imports', file);
+    const res = await upload<ImportDto>('/imports', file, {
+      onProgress: (sent) => {
+        setUploaded(sent);
+        // Every byte is sent: the server is now reading the file.
+        if (sent >= 1) setPending('read');
+      },
+    });
     if (!res.ok) {
       setPending(null);
       setError(res.error);
       return;
     }
-    setPending('checking');
+    setPending('check');
     await prepareImport(res.data);
     navigateFresh(router, `/imports/${res.data.id}`);
   }
@@ -93,8 +102,9 @@ export function UploadStep() {
           </Label>
           {tooLarge ? <Alert variant="destructive">This file is larger than 5 MB. Split it into smaller files.</Alert> : null}
           {error ? <Alert variant="destructive">{fieldError(error, 'file') ?? error.message}</Alert> : null}
+          {pending ? <ImportBusy step={pending} uploaded={uploaded} /> : null}
           <Button type="submit" size="lg" className="w-full sm:w-auto sm:self-start" disabled={!file || tooLarge || pending !== null}>
-            {pending === 'checking' ? 'Checking your file…' : pending === 'uploading' ? 'Uploading…' : 'Upload and review'}
+            {pending ? 'Working…' : 'Upload and review'}
           </Button>
         </form>
 

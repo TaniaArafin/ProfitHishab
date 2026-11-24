@@ -28,6 +28,7 @@ import { ImportsRepository, type ImportRecord } from './imports.repository';
 import { suggestColumns } from './rules/header-match';
 import { groupOrders, type ImportOrderGroup } from './rules/orders-group';
 import { dedupeHash, type NormalizedRow } from './rules/row-parse';
+import { changedRows } from './rules/changed-rows';
 import { prepareRows, rowVerdicts } from './rules/row-verdicts';
 import { suggestStatus } from './rules/status-match';
 import { readSpreadsheet } from './spreadsheet';
@@ -348,7 +349,7 @@ export class ImportsService {
     );
   }
 
-  /** Every row's verdict, written in one UPDATE, inside the caller's transaction. */
+  /** Every row's verdict, worked out in memory and written in one UPDATE, inside the caller's transaction. */
   private async checkRows(businessId: string, id: string, mapping: ImportMapping, tx: Tx): Promise<void> {
     const rows = await this.repo.allRows(businessId, id, tx);
     const couriers = await this.business.couriersByName(businessId, tx);
@@ -359,7 +360,8 @@ export class ImportsService {
     );
     const existing = await this.orders.existingImportKeys(businessId, prepared.refs, prepared.hashes, tx);
     const { results, counts } = rowVerdicts(prepared, existing);
-    await this.repo.writeValidation(id, results, tx);
+    // Every row is re-checked, but only verdicts that changed are written: after one inline fix that is a few rows.
+    await this.repo.writeValidation(id, changedRows(rows, results), tx);
     await this.repo.setStatus(id, 'validated', counts, tx);
   }
 

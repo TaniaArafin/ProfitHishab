@@ -38,8 +38,10 @@ test('a seller fixes a wrong row on the preview and imports it', async ({ page }
   await page.getByLabel(/Your file/).setInputFiles(file);
   await page.getByRole('button', { name: 'Upload and review' }).click();
 
-  const row = page.getByRole('form', { name: 'Fix row 3' });
   await expect(page.getByRole('heading', { name: '1 row needs fixing' })).toBeVisible();
+  await expect(page.getByText('Phone number is not valid').locator('visible=true').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Fix row 3: Phone 12345' }).locator('visible=true').first().click();
+  const row = page.getByRole('dialog', { name: 'Fix row 3' });
   await expect(row.getByText('Enter a number like 017XXXXXXXX')).toBeVisible();
   if (isPhone) expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 

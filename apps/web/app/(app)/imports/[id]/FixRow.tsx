@@ -10,7 +10,7 @@ import {
   type ImportTarget,
 } from '@ph/shared';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/client-api';
@@ -23,8 +23,21 @@ const SHORT_FIELDS = new Set<ImportTarget>(['quantity', 'sellingPrice']);
 /** Problems about the row as a whole, which no single field can show. */
 const ROW_REASONS = new Set(['order_conflict', 'order_row_invalid', 'duplicate_row', 'duplicate_in_file']);
 
-/** One wrong or duplicate row: its cells as inputs, each error under its field, saved in place. */
-export function FixRow({ imp, row, onFixed }: { imp: ImportDto; row: ImportRowDto; onFixed: (result: ImportRowEditDto) => void }) {
+/**
+ * One wrong or duplicate row in a window: its cells as inputs, each error under its field. It closes once the
+ * row is fixed (or moves to another list), and stays open with the new error otherwise.
+ */
+export function FixRow({
+  imp,
+  row,
+  onFixed,
+  onClose,
+}: {
+  imp: ImportDto;
+  row: ImportRowDto;
+  onFixed: (result: ImportRowEditDto) => void;
+  onClose: () => void;
+}) {
   const columns = imp.mapping?.columns ?? {};
   // The latest save answers before the list reloads, so its errors show at once.
   const [saved, setSaved] = useState<ImportRowDto | null>(null);
@@ -54,49 +67,74 @@ export function FixRow({ imp, row, onFixed }: { imp: ImportDto; row: ImportRowDt
       return;
     }
     setSaved(res.data.row);
+    if (res.data.row.status !== row.status) onClose();
     onFixed(res.data);
   }
 
+  const title = `Fix row ${row.rowNumber}`;
+
   return (
-    <Card className={cn('min-w-0 p-3 sm:p-4', current.status === 'duplicate' ? 'border-warn/40' : 'border-loss/30')}>
-      <form onSubmit={save} aria-label={`Fix row ${row.rowNumber}`} className="flex flex-col gap-3" noValidate>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold tabular">Row {row.rowNumber}</span>
-          <Button type="submit" size="sm" aria-label={`Save row ${row.rowNumber}`} disabled={changed.length === 0 || pending}>
-            {pending ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]">
-          {fields.map((target) => {
-            const id = `fix-${row.rowNumber}-${target}`;
-            const problem = current.problems[target];
-            return (
-              <div key={target} className={cn('flex min-w-0 flex-col gap-1', !SHORT_FIELDS.has(target) && 'col-span-2 lg:col-span-1')}>
-                <Label htmlFor={id}>{IMPORT_TARGET_LABELS[target]}</Label>
-                <Input
-                  id={id}
-                  value={valueOf(target)}
-                  onChange={(e) => setValues({ ...values, [target]: e.target.value })}
-                  aria-invalid={problem ? true : undefined}
-                  aria-describedby={problem ? `${id}-error` : undefined}
-                  className={cn(problem && 'border-loss bg-loss-soft/40 focus-visible:ring-loss')}
-                />
-                {problem ? (
-                  <p id={`${id}-error`} className="text-xs text-loss">
-                    {problem}
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        {rowNotes.length > 0 ? <p className="text-sm text-loss">{rowNotes.join('; ')}</p> : null}
-        {error ? (
-          <p role="alert" className="text-sm text-loss">
-            {error}
-          </p>
-        ) : null}
-      </form>
-    </Card>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        onOpenAutoFocus={(e) => {
+          // Start on the first wrong field, not the first field.
+          const first = fields.find((t) => current.problems[t]);
+          const input = first ? document.getElementById(`fix-${row.rowNumber}-${first}`) : null;
+          if (input) {
+            e.preventDefault();
+            input.focus();
+          }
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {current.status === 'duplicate'
+              ? 'This row looks like an order you already have. Change it only if it is a different order.'
+              : 'Correct the highlighted values, then save.'}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={save} className="flex flex-col gap-4" noValidate>
+          <div className="grid grid-cols-2 gap-3">
+            {fields.map((target) => {
+              const id = `fix-${row.rowNumber}-${target}`;
+              const problem = current.problems[target];
+              return (
+                <div key={target} className={cn('flex min-w-0 flex-col gap-1', !SHORT_FIELDS.has(target) && 'col-span-2')}>
+                  <Label htmlFor={id}>{IMPORT_TARGET_LABELS[target]}</Label>
+                  <Input
+                    id={id}
+                    value={valueOf(target)}
+                    onChange={(e) => setValues({ ...values, [target]: e.target.value })}
+                    aria-invalid={problem ? true : undefined}
+                    aria-describedby={problem ? `${id}-error` : undefined}
+                    className="aria-[invalid=true]:focus:border-loss aria-[invalid=true]:focus:ring-0"
+                  />
+                  {problem ? (
+                    <p id={`${id}-error`} className="text-xs text-loss">
+                      {problem}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          {rowNotes.length > 0 ? <p className="text-sm text-loss">{rowNotes.join('; ')}</p> : null}
+          {error ? (
+            <p role="alert" className="text-sm text-loss">
+              {error}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" aria-label={`Save row ${row.rowNumber}`} disabled={changed.length === 0 || pending}>
+              {pending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

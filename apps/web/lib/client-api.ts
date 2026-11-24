@@ -42,13 +42,23 @@ export async function api<T>(
   });
 }
 
+export interface UploadOptions extends ApiOptions {
+  /** Called with the share of the file sent so far (0 to 1). Needs XMLHttpRequest: fetch cannot report it. */
+  onProgress?: (fraction: number) => void;
+}
+
 /**
  * POSTs one file as multipart form data (field `file`). No content-type header: the browser sets
  * it with the multipart boundary. The CSRF header is still sent. 60 s timeout unless given.
  */
-export async function upload<T>(path: string, file: File, { timeoutMs = LONG_TIMEOUT_MS }: ApiOptions = {}): Promise<ApiResult<T>> {
+export async function upload<T>(
+  path: string,
+  file: File,
+  { timeoutMs = LONG_TIMEOUT_MS, onProgress }: UploadOptions = {},
+): Promise<ApiResult<T>> {
   const form = new FormData();
   form.append('file', file);
+  if (onProgress) return sendWithProgress<T>(`/api${path}`, timeoutMs, form, onProgress);
   return send<T>(`/api${path}`, timeoutMs, {
     method: 'POST',
     headers: { accept: 'application/json', 'x-csrf-token': csrfToken() },
@@ -56,28 +66,67 @@ export async function upload<T>(path: string, file: File, { timeoutMs = LONG_TIM
   });
 }
 
+function sendWithProgress<T>(
+  url: string,
+  timeoutMs: number,
+  form: FormData,
+  onProgress: (fraction: number) => void,
+): Promise<ApiResult<T>> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader('accept', 'application/json');
+    xhr.setRequestHeader('x-csrf-token', csrfToken());
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let json: Record<string, unknown> = {};
+      try {
+        json = xhr.responseText ? (JSON.parse(xhr.responseText) as Record<string, unknown>) : {};
+      } catch {
+        json = {};
+      }
+      resolve(toResult<T>(xhr.status, json));
+    };
+    xhr.onerror = () => resolve(failure('network'));
+    xhr.ontimeout = () => resolve(failure('timeout'));
+    xhr.send(form);
+  });
+}
+
+function toResult<T>(status: number, json: Record<string, unknown>): ApiResult<T> {
+  if (status === 204) return { ok: true, data: undefined as T, body: {} };
+  if (status < 200 || status >= 300) {
+    const error = (json.error as ApiError | undefined) ?? { code: 'error', message: `Request failed (${status}).` };
+    return { ok: false, status, error };
+  }
+  return { ok: true, data: json.data as T, body: json };
+}
+
+function failure(code: 'network' | 'timeout'): ApiResult<never> {
+  return {
+    ok: false,
+    status: 0,
+    error: {
+      code,
+      message:
+        code === 'timeout'
+          ? 'The server took too long to answer. Try again.'
+          : 'Could not reach the server. Check your connection and try again.',
+    },
+  };
+}
+
 async function send<T>(url: string, timeoutMs: number, init: RequestInit): Promise<ApiResult<T>> {
   try {
     const res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
     if (res.status === 204) return { ok: true, data: undefined as T, body: {} };
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok) {
-      const error = (json.error as ApiError | undefined) ?? { code: 'error', message: `Request failed (${res.status}).` };
-      return { ok: false, status: res.status, error };
-    }
-    return { ok: true, data: json.data as T, body: json };
+    return toResult<T>(res.status, json);
   } catch (e) {
-    const timedOut = e instanceof DOMException && e.name === 'TimeoutError';
-    return {
-      ok: false,
-      status: 0,
-      error: {
-        code: timedOut ? 'timeout' : 'network',
-        message: timedOut
-          ? 'The server took too long to answer. Try again.'
-          : 'Could not reach the server. Check your connection and try again.',
-      },
-    };
+    return failure(e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'network');
   }
 }
 
