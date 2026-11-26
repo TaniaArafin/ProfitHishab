@@ -1,6 +1,10 @@
 import {
   formatTaka,
+  lineAmount,
   percent,
+  roundQuantity,
+  type Unit,
+  type VariantProfitDto,
   type InsightDto,
   type InsightSeverity,
   type ProductProfitDto,
@@ -112,8 +116,12 @@ export interface DeliveredItemRow {
   orderId: string;
   orderDiscount: number;
   productId: string;
+  variantId: string;
+  /** null for a plain product. */
+  variantLabel: string | null;
   name: string;
   sku: string;
+  unit: string;
   quantity: number;
   lineTotal: number;
   unitCost: number;
@@ -141,10 +149,24 @@ export function productProfitRows(items: DeliveredItemRow[], returnedUnits: Map<
         profit: 0,
         margin: 0,
         unitsReturned: 0,
+        unit: item.unit as Unit,
+        variants: [],
       };
       rows.set(item.productId, r);
     }
     return r;
+  };
+  /** Variant rows per product, only for lines that name a variant ("M / Red"). */
+  const variantRows = new Map<string, VariantProfitDto>();
+  const variantRow = (r: ProductProfitDto, item: DeliveredItemRow): VariantProfitDto | null => {
+    if (!item.variantLabel) return null;
+    let v = variantRows.get(item.variantId);
+    if (!v) {
+      v = { variantId: item.variantId, label: item.variantLabel, unitsSold: 0, sales: 0, cost: 0, profit: 0, margin: 0 };
+      variantRows.set(item.variantId, v);
+      r.variants.push(v);
+    }
+    return v;
   };
 
   for (const lines of byOrder.values()) {
@@ -154,9 +176,14 @@ export function productProfitRows(items: DeliveredItemRow[], returnedUnits: Map<
     );
     lines.forEach((line, i) => {
       const r = row(line);
-      r.unitsSold += line.quantity;
-      r.sales += line.lineTotal - discounts[i];
-      r.cost += line.quantity * line.unitCost;
+      const sales = line.lineTotal - discounts[i];
+      const cost = lineAmount(line.quantity, line.unitCost);
+      for (const target of [r, variantRow(r, line)]) {
+        if (!target) continue;
+        target.unitsSold = roundQuantity(target.unitsSold + line.quantity);
+        target.sales += sales;
+        target.cost += cost;
+      }
     });
   }
 
@@ -164,6 +191,10 @@ export function productProfitRows(items: DeliveredItemRow[], returnedUnits: Map<
     r.profit = r.sales - r.cost;
     r.margin = percent(r.profit, r.sales);
     r.unitsReturned = returnedUnits.get(r.productId) ?? 0;
+    for (const v of r.variants) {
+      v.profit = v.sales - v.cost;
+      v.margin = percent(v.profit, v.sales);
+    }
   }
 
   return [...rows.values()].sort((a, b) => b.profit - a.profit);

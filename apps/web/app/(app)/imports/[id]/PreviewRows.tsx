@@ -21,6 +21,7 @@ const WARNING_LABELS: Record<string, string> = {
   date_missing: "No order date: today's date is used",
   cost_missing: 'No product cost: its profit will show higher',
   discount_clamped: 'Discount was more than the order, so it is capped',
+  unit_unknown: 'Unit not recognised: the product keeps its own unit',
 };
 
 type Issue = { tone: 'error' | 'warn' | 'fixed'; text: string };

@@ -19,6 +19,7 @@ import type { Tx } from '../../common/prisma.service';
 import { AuthError } from '../../common/errors';
 import { config } from '../../config';
 import { BusinessService } from '../business/business.service';
+import { ProductsService } from '../products/products.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { AuthRepository } from './auth.repository';
 import { LoginAttempts } from './login-attempts';
@@ -60,6 +61,7 @@ export class AuthService {
     private readonly repo: AuthRepository,
     private readonly business: BusinessService,
     private readonly expenses: ExpensesService,
+    private readonly products: ProductsService,
     private readonly attempts: LoginAttempts,
     private readonly phones: PhoneVerificationRepository,
     private readonly sms: SmsSender,
@@ -137,6 +139,7 @@ export class AuthService {
       // Only a verified number is remembered: an unverified one could belong to someone else.
       if (verifiedPhone) await this.phones.claimTrial(verifiedPhone, businessId, tx);
       await this.expenses.seedDefaultCategories(businessId, tx);
+      await this.products.seedOptionLists(businessId, input.businessType ?? null, tx);
       return user.id;
     });
     return this.issueSession(userId, meta);

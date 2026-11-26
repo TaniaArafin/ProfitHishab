@@ -24,6 +24,12 @@ export class OrderError extends AppError {
     return new OrderError(422, 'cannot_cancel', message, { status: [message] });
   }
 
+  /** Pieces, packs, strips…: only kg, gram, litre, ml and metre take decimal quantities. */
+  static wholeQuantityRequired(productName: string, unit: string, index: number): OrderError {
+    const message = `${productName} is sold by ${unit}; use a whole number.`;
+    return new OrderError(422, 'quantity_not_whole', message, { [`items.${index}.quantity`]: [message] });
+  }
+
   /** FR-ORD-07: only an order that left with the courier can come back. */
   static cannotReturn(from: OrderStatus): OrderError {
     const message = `A ${label(from)} order can't be marked returned. Only shipped or delivered orders can.`;

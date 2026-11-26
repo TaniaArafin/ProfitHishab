@@ -4,6 +4,7 @@ export * from './phone';
 export * from './dates';
 export * from './order-status';
 export * from './order-totals';
+export * from './products';
 export * from './schemas';
 export * from './trial';
 export * from './types';

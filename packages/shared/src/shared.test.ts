@@ -289,3 +289,144 @@ describe('report months', () => {
     expect(currentMonthIn('Asia/Dhaka', new Date('2026-10-31T19:30:00Z'))).toBe('2026-11');
   });
 });
+
+// ── Products for every business (Stage 1) ──────────────────────────────
+
+import {
+  allowsDecimal,
+  businessTypeDefaults,
+  lineAmount,
+  orderItemSchema,
+  productSchema,
+  productUpdateSchema,
+  suggestVariantSku,
+  variantCombinations,
+  variantLabel,
+} from './index';
+
+describe('variant helpers', () => {
+  const opts = [{ name: 'Size' }, { name: 'Colour' }];
+
+  it('builds every combination in option and value order', () => {
+    expect(
+      variantCombinations([
+        { name: 'Size', values: ['S', 'M'] },
+        { name: 'Colour', values: ['Red', 'Blue'] },
+      ]),
+    ).toEqual([
+      { Size: 'S', Colour: 'Red' },
+      { Size: 'S', Colour: 'Blue' },
+      { Size: 'M', Colour: 'Red' },
+      { Size: 'M', Colour: 'Blue' },
+    ]);
+    expect(variantCombinations([])).toEqual([{}]);
+  });
+
+  it('labels a variant by its values in option order', () => {
+    expect(variantLabel({ Colour: 'Red', Size: 'M' }, opts)).toBe('M / Red');
+    expect(variantLabel({}, [])).toBe('');
+  });
+
+  it('suggests a variant SKU from the product SKU', () => {
+    expect(suggestVariantSku('KUR', { Size: 'XL', Colour: 'Sky blue' }, opts)).toBe('KUR-XL-SKY-BLUE');
+  });
+
+  it('rounds each line to whole poisha', () => {
+    expect(lineAmount(0.333, 7777)).toBe(2590);
+    const a = orderTotals([{ quantity: 0.333, unitPrice: 7777, unitCost: 6000 }], { discount: 0, deliveryCharge: 0 });
+    expect(a.subtotal).toBe(2590);
+    expect(a.productCost).toBe(1998);
+    const b = orderTotals([{ quantity: 2.5, unitPrice: 7800, unitCost: 6600 }], { discount: 0, deliveryCharge: 0 });
+    expect(b.subtotal).toBe(19500);
+    expect(b.productCost).toBe(16500);
+  });
+
+  it('knows which units take decimals and the defaults per business type', () => {
+    expect(allowsDecimal('kg')).toBe(true);
+    expect(allowsDecimal('piece')).toBe(false);
+    expect(businessTypeDefaults('Clothing & fashion')).toEqual({
+      unit: 'piece',
+      options: ['Size', 'Colour'],
+      attributes: ['Material', 'Fit'],
+    });
+    expect(businessTypeDefaults('Medical & pharmacy')).toEqual({
+      unit: 'strip',
+      options: [],
+      attributes: ['Generic name', 'Strength', 'Form'],
+    });
+    expect(businessTypeDefaults(null).unit).toBe('piece');
+    expect(businessTypeDefaults('Something else').unit).toBe('piece');
+  });
+});
+
+describe('productSchema with variants', () => {
+  const kurti = {
+    name: 'Cotton Kurti',
+    options: [
+      { name: 'Size', values: ['S', 'M'] },
+      { name: 'Colour', values: ['Red'] },
+    ],
+    variants: [
+      { optionValues: { Size: 'S', Colour: 'Red' }, sellingPrice: 125000, costPrice: 70000, stock: 10 },
+      { optionValues: { Size: 'M', Colour: 'Red' }, sellingPrice: 125000, costPrice: 70000, stock: 14 },
+    ],
+  };
+  const issuePaths = (input: unknown) => {
+    const r = productSchema.safeParse(input);
+    return r.success ? [] : r.error.issues.map((i) => i.path.join('.'));
+  };
+
+  it('turns the legacy payload into one hidden variant', () => {
+    const p = productSchema.parse({ name: 'Gift Box', sellingPrice: 35000, costPrice: 12000, stock: 40 });
+    expect(p.unit).toBe('piece');
+    expect(p.options).toEqual([]);
+    expect(p.variants).toEqual([{ optionValues: {}, sku: null, sellingPrice: 35000, costPrice: 12000, stock: 40, status: 'active' }]);
+  });
+
+  it('accepts a product with options and variants', () => {
+    const p = productSchema.parse(kurti);
+    expect(p.variants).toHaveLength(2);
+    expect(p.variants[1].status).toBe('active');
+  });
+
+  it('refuses broken variants with a field path', () => {
+    expect(issuePaths({ ...kurti, variants: [kurti.variants[0], { ...kurti.variants[1], optionValues: { Size: 'M' } }] })).toContain(
+      'variants.1.optionValues',
+    );
+    expect(
+      issuePaths({ ...kurti, variants: [kurti.variants[0], { ...kurti.variants[1], optionValues: { Size: 'XL', Colour: 'Red' } }] }),
+    ).toContain('variants.1.optionValues');
+    expect(issuePaths({ ...kurti, variants: [kurti.variants[0], kurti.variants[0]] })).toContain('variants.1.optionValues');
+    expect(issuePaths({ ...kurti, options: [...kurti.options, { name: 'A', values: ['1'] }, { name: 'B', values: ['1'] }] })).toContain(
+      'options',
+    );
+    expect(issuePaths({ name: 'X', options: kurti.options })).toContain('variants');
+    expect(issuePaths({ name: 'X' })).toContain('sellingPrice');
+    expect(issuePaths({ ...kurti, options: [{ name: 'Size', values: ['S', 's'] }] })).toContain('options.0.values');
+  });
+
+  it('decimal stock is allowed only for decimal units', () => {
+    expect(issuePaths({ name: 'Rice', unit: 'kg', sellingPrice: 7800, costPrice: 6600, stock: 247.5 })).toEqual([]);
+    expect(issuePaths({ name: 'Box', sellingPrice: 7800, costPrice: 6600, stock: 2.5 })).toContain('stock');
+  });
+
+  it('update leaves everything optional', () => {
+    expect(productUpdateSchema.parse({ name: 'New' })).toEqual({ name: 'New' });
+    expect(productUpdateSchema.parse({ sellingPrice: 100 })).toEqual({ sellingPrice: 100 });
+    expect(productUpdateSchema.safeParse({ options: kurti.options, variants: [kurti.variants[0], kurti.variants[0]] }).success).toBe(false);
+  });
+});
+
+describe('orderItemSchema', () => {
+  const id = '8d2f6d3c-5d33-4f3b-9f7a-1c2b3d4e5f60';
+  it('needs exactly one of variantId and productId', () => {
+    expect(orderItemSchema.safeParse({ quantity: 1 }).success).toBe(false);
+    expect(orderItemSchema.safeParse({ variantId: id, productId: id, quantity: 1 }).success).toBe(false);
+    expect(orderItemSchema.safeParse({ productId: id, quantity: 1 }).success).toBe(true);
+  });
+  it('takes up to 3 decimals above 0', () => {
+    expect(orderItemSchema.safeParse({ variantId: id, quantity: 0 }).success).toBe(false);
+    expect(orderItemSchema.safeParse({ variantId: id, quantity: 1.2345 }).success).toBe(false);
+    expect(orderItemSchema.parse({ variantId: id, quantity: 2.5 }).quantity).toBe(2.5);
+  });
+});

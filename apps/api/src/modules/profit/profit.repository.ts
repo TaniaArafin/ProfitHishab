@@ -123,8 +123,8 @@ export class ProfitRepository {
    */
   deliveredItems(businessId: string, period: Period): Promise<Array<DeliveredItemRow & { categoryId: string | null }>> {
     return this.prisma.$queryRaw`
-      SELECT oi."orderId", o.discount AS "orderDiscount", oi."productId", p.name, p.sku, p."categoryId",
-             oi.quantity, oi."lineTotal", oi."unitCost"
+      SELECT oi."orderId", o.discount AS "orderDiscount", oi."productId", oi."variantId", oi."variantLabel",
+             p.name, p.sku, p.unit, p."categoryId", oi.quantity, oi."lineTotal", oi."unitCost"
       FROM order_items oi
       JOIN orders o ON o.id = oi."orderId"
       JOIN products p ON p.id = oi."productId"
@@ -134,7 +134,7 @@ export class ProfitRepository {
 
   async returnedUnits(businessId: string, period: Period): Promise<Map<string, number>> {
     const rows = await this.prisma.$queryRaw<Array<{ productId: string; units: number }>>`
-      SELECT oi."productId", sum(oi.quantity)::int AS units
+      SELECT oi."productId", sum(oi.quantity)::float8 AS units
       FROM order_items oi JOIN orders o ON o.id = oi."orderId"
       WHERE o."businessId" = ${businessId}::uuid AND o.status = 'returned'
         AND o."orderDate" BETWEEN ${period.from}::date AND ${period.to}::date
@@ -143,7 +143,9 @@ export class ProfitRepository {
   }
 
   countProductsMissingCost(businessId: string): Promise<number> {
-    return this.prisma.product.count({ where: { businessId, costPrice: 0, status: 'active' } });
+    return this.prisma.product.count({
+      where: { businessId, status: 'active', variants: { some: { status: 'active', costPrice: 0 } } },
+    });
   }
 
   async hasAnyOrders(businessId: string): Promise<boolean> {

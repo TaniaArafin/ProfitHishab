@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import type { BusinessDto } from '@ph/shared';
+import { BUSINESS_TYPES, type BusinessDto } from '@ph/shared';
 import { fieldError } from '@/lib/client-api';
+import { SelectField } from '@/components/SelectField';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -19,7 +20,13 @@ export function BusinessDetailsForm({ business }: { business: BusinessDto }) {
     address: business.address ?? '',
     city: business.city ?? '',
     facebookPageUrl: business.facebookPageUrl ?? '',
+    businessType: business.businessType ?? '',
   });
+  // An older free-text type stays selectable until the seller picks one of the list.
+  const types = [
+    ...BUSINESS_TYPES,
+    ...(form.businessType && !(BUSINESS_TYPES as readonly string[]).includes(form.businessType) ? [form.businessType] : []),
+  ];
   const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   function submit(e: FormEvent) {
@@ -46,6 +53,17 @@ export function BusinessDetailsForm({ business }: { business: BusinessDto }) {
           <div>
             <Label htmlFor="biz-phone">Phone</Label>
             <Input id="biz-phone" value={form.phone} onChange={set('phone')} />
+          </div>
+          <div>
+            <Label htmlFor="biz-type">Business type</Label>
+            <SelectField
+              id="biz-type"
+              value={form.businessType}
+              onValueChange={(v) => setForm((f) => ({ ...f, businessType: v }))}
+              placeholder="Choose…"
+              options={types.map((t) => ({ value: t, label: t }))}
+            />
+            <p className="mt-1 text-xs text-ink-faint">Sets the unit, options and details a new product starts with.</p>
           </div>
           <div>
             <Label htmlFor="biz-city">City</Label>

@@ -10,3 +10,10 @@ afterEach(() => {
 const elementProto = Element.prototype as unknown as Record<string, unknown>;
 const missing = { hasPointerCapture: () => false, releasePointerCapture: () => {}, scrollIntoView: () => {} };
 for (const [key, stub] of Object.entries(missing)) elementProto[key] ??= stub;
+
+// Radix Checkbox measures itself with ResizeObserver, which jsdom lacks.
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};

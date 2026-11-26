@@ -1,4 +1,4 @@
-import { orderTotals, type OrderStatus, type PaymentMethod } from '@ph/shared';
+import { orderTotals, type OrderStatus, type PaymentMethod, type Unit } from '@ph/shared';
 import type { NormalizedRow } from './row-parse';
 
 export interface ImportOrderGroup {
@@ -15,7 +15,15 @@ export interface ImportOrderGroup {
   discount: number;
   deliveryCharge: number;
   courierCost: number | null;
-  items: { sku: string | null; productName: string; quantity: number; unitPrice: number; unitCost: number | null }[];
+  items: {
+    sku: string | null;
+    productName: string;
+    optionValues: Record<string, string>;
+    unit: Unit | null;
+    quantity: number;
+    unitPrice: number;
+    unitCost: number | null;
+  }[];
   warnings: string[];
 }
 
@@ -60,6 +68,9 @@ export function groupOrders(rows: { rowNumber: number; value: NormalizedRow }[])
     const items = bucket.map((r) => ({
       sku: r.value.sku,
       productName: r.value.productName,
+      // Rows checked before variants existed have neither field.
+      optionValues: r.value.optionValues ?? {},
+      unit: r.value.unit ?? null,
       quantity: r.value.quantity,
       unitPrice: r.value.unitPrice,
       unitCost: r.value.unitCost,

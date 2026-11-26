@@ -12,7 +12,7 @@ const LIST_INCLUDE = {
 
 const DETAIL_INCLUDE = {
   ...LIST_INCLUDE,
-  items: { orderBy: { id: 'asc' } },
+  items: { orderBy: { id: 'asc' }, include: { product: { select: { unit: true } } } },
   history: { orderBy: { changedAt: 'asc' } },
 } satisfies Prisma.OrderInclude;
 
@@ -22,7 +22,10 @@ export type OrderWithItems = Prisma.OrderGetPayload<{ include: { items: true } }
 
 export interface NewOrderItem {
   productId: string;
+  variantId: string;
   productName: string;
+  /** "M / Red" at the time of the order; null for a plain product. */
+  variantLabel: string | null;
   sku: string;
   quantity: number;
   unitPrice: number;

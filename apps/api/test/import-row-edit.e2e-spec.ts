@@ -61,7 +61,7 @@ describe('Editing an import row (e2e)', () => {
     const id = await checked();
     const invalid = (await seller.get(`/imports/${id}/rows?status=invalid`)).body.data as ImportRowDto[];
     expect(invalid.map((r) => [r.rowNumber, r.problems])).toEqual([
-      [3, { phone: 'Enter a number like 017XXXXXXXX', quantity: 'Enter a whole number of 1 or more' }],
+      [3, { phone: 'Enter a number like 017XXXXXXXX', quantity: 'Enter a number above 0, like 2 or 2.5' }],
       [4, { discount: 'Enter an amount like 1250' }],
     ]);
     const valid = (await seller.get(`/imports/${id}/rows?status=valid`)).body.data as ImportRowDto[];
@@ -94,7 +94,7 @@ describe('Editing an import row (e2e)', () => {
     const id = await checked();
     const data = (await edit(id, 3, { Phone: '01912345678' })).body.data as Edited;
     expect(data.row.status).toBe('invalid');
-    expect(data.row.problems).toEqual({ quantity: 'Enter a whole number of 1 or more' });
+    expect(data.row.problems).toEqual({ quantity: 'Enter a number above 0, like 2 or 2.5' });
   });
 
   it('a fix that makes a copy of another row is reported as a duplicate', async () => {

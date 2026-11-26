@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { ArrowLeft, ReceiptText } from 'lucide-react';
 import Link from 'next/link';
-import { formatTaka, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, type OrderDetailDto } from '@ph/shared';
+import { formatTaka, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, UNIT_LABELS, type OrderDetailDto, type OrderItemDto } from '@ph/shared';
 import { Money, PageHeader, StatusPill, TableCard } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -59,10 +59,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   {o.items.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell>
-                        <div className="font-medium">{item.productName}</div>
+                        <div className="font-medium">
+                          {item.productName}
+                          {item.variantLabel ? <span className="text-ink-muted"> — {item.variantLabel}</span> : null}
+                        </div>
                         <div className="text-xs text-ink-faint">{item.sku}</div>
                       </TableCell>
-                      <TableCell className="text-right tabular">{item.quantity}</TableCell>
+                      <TableCell className="whitespace-nowrap text-right tabular">{quantityText(item)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right tabular">{formatTaka(item.unitPrice)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right tabular text-ink-muted">{formatTaka(item.unitCost)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right font-medium tabular">{formatTaka(item.lineTotal)}</TableCell>
@@ -76,11 +79,14 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               {o.items.map((item) => (
                 <li key={item.id} className="flex flex-col gap-1 px-4 py-3 text-sm">
                   <div className="flex items-baseline justify-between gap-3">
-                    <span className="min-w-0 truncate font-medium">{item.productName}</span>
+                    <span className="min-w-0 truncate font-medium">
+                      {item.productName}
+                      {item.variantLabel ? <span className="text-ink-muted"> — {item.variantLabel}</span> : null}
+                    </span>
                     <span className="shrink-0 font-medium tabular">{formatTaka(item.lineTotal)}</span>
                   </div>
                   <div className="text-xs text-ink-faint tabular">
-                    {item.sku} · {item.quantity} × {formatTaka(item.unitPrice)} · cost {formatTaka(item.unitCost)}
+                    {item.sku} · {quantityText(item)} × {formatTaka(item.unitPrice)} · cost {formatTaka(item.unitCost)}
                   </div>
                 </li>
               ))}
@@ -175,4 +181,9 @@ function Row({ label, value }: { label: string; value: number }) {
       <Money value={value} />
     </div>
   );
+}
+
+/** "2", or "2.5 kg" for any unit but piece. */
+function quantityText(item: OrderItemDto): string {
+  return item.unit === 'piece' ? String(item.quantity) : `${item.quantity} ${UNIT_LABELS[item.unit]}`;
 }

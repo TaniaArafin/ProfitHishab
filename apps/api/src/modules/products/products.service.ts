@@ -1,75 +1,90 @@
 import { Injectable } from '@nestjs/common';
-import { todayIn, type BulkCostInput, type CategoryDto, type ProductDto, type ProductInput, type ProductUpdateInput } from '@ph/shared';
+import {
+  optionValuesKey,
+  presetOptionLists,
+  productUpdateSchema,
+  suggestVariantSku,
+  todayIn,
+  variantLabel,
+  type BulkCostInput,
+  type CategoryDto,
+  type OptionListDto,
+  type OptionListInput,
+  type OptionListUpdateInput,
+  type ProductDto,
+  type ProductInput,
+  type ProductPriceDto,
+  type ProductPriceOnDto,
+  type ProductUpdateInput,
+  type Unit,
+  type VariantInput,
+} from '@ph/shared';
+import { ZodError } from 'zod';
 import type { AuthContext } from '../../common/auth';
 import type { Tx } from '../../common/prisma.service';
 import { CategoriesRepository } from './categories.repository';
-import { ProductPricesRepository, type PriceHistoryRow, type PricePoint } from './product-prices.repository';
+import { ProductPricesRepository } from './product-prices.repository';
 import { ProductSearch } from './product-search';
-import { CategoryError, ProductError } from './products.errors';
-import { toProductDto } from './products.presenter';
-import { ProductsRepository, type ProductListFilters } from './products.repository';
+import { ProductsImportService, type ImportProduct, type ImportProductRef } from './products-import.service';
 
-/** The facts Orders needs about a product to snapshot it onto an order line. */
-export interface ProductForOrder {
-  id: string;
-  name: string;
+export { importLineKey, importProductKey, type ImportProduct, type ImportProductRef } from './products-import.service';
+import { OptionListsRepository } from './option-lists.repository';
+import { CategoryError, OptionListError, ProductError } from './products.errors';
+import { productOptions, toProductDto } from './products.presenter';
+import { ProductsRepository, type ProductListFilters, type ProductRow } from './products.repository';
+import { VariantsRepository, type VariantRow, type VariantWithProduct, type VariantWrite } from './variants.repository';
+
+/** The facts Orders needs about the variant on a line, priced as on the order date. */
+export interface VariantForOrder {
+  variantId: string;
+  productId: string;
+  productName: string;
+  /** "M / Red"; null for a plain product. */
+  variantLabel: string | null;
   sku: string;
+  unit: Unit;
+  archived: boolean;
   sellingPrice: number;
   costPrice: number;
-  archived: boolean;
 }
 
-/** A product as a spreadsheet line names it (FR-IMP-08). */
-export interface ImportProductRef {
-  sku: string | null;
-  name: string;
-  unitPrice: number;
-  unitCost: number | null;
-  orderDate: string;
+type Option = { name: string; values: string[] };
+
+/** Option values as the option spells them ("red" → "Red"), so labels and matching stay consistent. */
+function canonical(optionValues: Record<string, string>, options: Option[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const o of options) {
+    const given = optionValues[o.name];
+    if (given === undefined) continue;
+    out[o.name] = o.values.find((v) => v.toLowerCase() === given.toLowerCase()) ?? given;
+  }
+  return out;
 }
 
-/** A product an import's lines use: its snapshot fields, current cost and cost on any day. */
-export interface ImportProduct {
-  id: string;
-  name: string;
-  sku: string;
-  costPrice: number;
-  costOn: (date: string) => number;
-}
+const firstActive = <T extends VariantRow>(variants: T[]): T => variants.find((v) => v.status === 'active') ?? variants[0];
 
-/**
- * The match key of a spreadsheet product: `sku:<sku>`, or `name:<name>` when it has none, trimmed and
- * lower-cased. The prefixes keep SKU "hijab" and a product named "Hijab" apart.
- */
-export function importProductKey(ref: { sku: string | null; name: string }): string {
-  const sku = ref.sku?.trim();
-  return sku ? `sku:${sku.toLowerCase()}` : `name:${ref.name.trim().toLowerCase()}`;
-}
-
-const GENERATED_SKU = /^PRD-(\d+)$/;
-
-/** The cost in effect on `date` (same rule as ProductPricesRepository.on): the latest row on or before it, else the first. */
-function costOnFrom(history: Array<{ effectiveFrom: string; costPrice: number }>, fallback: number) {
-  return (date: string): number => {
-    if (history.length === 0) return fallback;
-    let cost = history[0].costPrice;
-    for (const row of history) if (row.effectiveFrom <= date) cost = row.costPrice;
-    return cost;
-  };
-}
+/** A variant to write, with the id of the stored variant it replaces (if any). */
+type PlannedVariant = VariantWrite & { id?: string; index: number };
 
 /**
  * Product rules, and the public surface of the Products module: Orders calls
- * productsForOrder() and moveStock(), never ProductsRepository
+ * variantsForOrder() and moveStock(), never a repository
  * (laravel-patterns: domain-no-cross-domain-models).
+ *
+ * Every product has at least one variant (what is sold and counted). A plain product has one
+ * with no option values. The product row keeps a summary (price and cost of the first active
+ * variant, stock summed), refreshed in the same transaction as any variant write.
  */
 @Injectable()
 export class ProductsService {
   constructor(
     private readonly repo: ProductsRepository,
+    private readonly variants: VariantsRepository,
     private readonly categories: CategoriesRepository,
+    private readonly optionLists: OptionListsRepository,
     private readonly prices: ProductPricesRepository,
     private readonly search: ProductSearch,
+    private readonly importer: ProductsImportService,
   ) {}
 
   /**
@@ -84,32 +99,78 @@ export class ProductsService {
       if (hits) {
         if (hits.ids.length === 0) return { data: [], total: hits.found };
         const { rows } = await this.repo.paginate(businessId, { ...filters, ids: hits.ids, page: 1, perPage: hits.ids.length });
-        return { data: rows.map(toProductDto), total: hits.found };
+        return { data: await this.withVariants(businessId, rows), total: hits.found };
       }
     }
     const ids = q ? await this.search.ids(businessId, q, { status }) : null;
     const { rows, total } = await this.repo.paginate(businessId, ids ? { ...filters, ids } : filters);
-    return { data: rows.map(toProductDto), total };
+    return { data: await this.withVariants(businessId, rows), total };
+  }
+
+  private async withVariants(businessId: string, rows: ProductRow[]): Promise<ProductDto[]> {
+    const variants = await this.variants.forProducts(
+      businessId,
+      rows.map((r) => r.id),
+    );
+    const byProduct = new Map<string, VariantRow[]>();
+    for (const v of variants) byProduct.set(v.productId, [...(byProduct.get(v.productId) ?? []), v]);
+    return rows.map((r) => toProductDto(r, byProduct.get(r.id) ?? []));
   }
 
   async show(businessId: string, productId: string): Promise<ProductDto & { pastOrderCount: number }> {
-    const [row, pastOrderCount] = await Promise.all([
+    const [row, variants, pastOrderCount] = await Promise.all([
       this.repo.findRow(businessId, productId),
+      this.variants.forProducts(businessId, [productId]),
       this.repo.countOrdersWithProduct(businessId, productId),
     ]);
     if (!row) throw ProductError.notFound();
-    return { ...toProductDto(row), pastOrderCount };
+    return { ...toProductDto(row, variants), pastOrderCount };
   }
 
-  /** The first price-history row starts today, in the business's timezone. */
+  /**
+   * A plain product's variant takes the product's SKU (the next PRD- number when none is given);
+   * a variant of a product with options takes its own SKU or one suggested from the product's
+   * (KUR-XL-RED). Each variant's price history starts today, in the business's timezone.
+   */
   async create(auth: AuthContext, input: ProductInput): Promise<ProductDto> {
     const { businessId } = auth;
     await this.assertCategory(businessId, input.categoryId);
     const sku = input.sku ?? (await this.repo.nextSku(businessId));
-    await this.assertSkuFree(businessId, sku);
+    const planned = this.plan(input.variants, input.options, sku, []);
+    await this.assertSkus(businessId, sku, input.options.length === 0, planned, [], undefined);
+    const summary = this.summary(planned);
+
     const id = await this.repo.transaction(async (tx) => {
-      const product = await this.repo.create(businessId, { ...input, sku, categoryId: input.categoryId ?? null }, tx);
-      await this.recordPrice(auth, product.id, input, tx);
+      const product = await this.repo.create(
+        businessId,
+        {
+          name: input.name,
+          sku,
+          categoryId: input.categoryId ?? null,
+          unit: input.unit,
+          brand: input.brand ?? null,
+          description: input.description ?? null,
+          attributes: input.attributes,
+          options: input.options,
+          status: input.status,
+          ...summary,
+        },
+        tx,
+      );
+      const ids = await this.variants.createMany(businessId, product.id, planned.map(this.toWrite), tx);
+      const today = todayIn(auth.timezone);
+      await this.prices.recordMany(
+        businessId,
+        planned.map((v, i) => ({
+          productId: product.id,
+          variantId: ids[i],
+          sellingPrice: v.sellingPrice,
+          costPrice: v.costPrice,
+          effectiveFrom: today,
+        })),
+        auth.userId,
+        tx,
+      );
       return product.id;
     });
     await this.search.index(businessId, [id]);
@@ -117,204 +178,335 @@ export class ProductsService {
   }
 
   /**
-   * A new selling price or cost applies from today on: it is added to the price history and
-   * past orders keep the price they were made at. Several changes on one day keep the last.
+   * A new selling price or cost applies from today on: it is added to that variant's price history
+   * and past orders keep the price they were made at. Several changes on one day keep the last.
+   *
+   * With `variants`: a variant with an id is updated, one without is created (or matched to a stored
+   * one with the same option values); a stored variant left out is archived when an order uses it,
+   * deleted otherwise. The legacy `sellingPrice / costPrice / stock` fields update a plain product's
+   * only variant; on a product with several variants they are refused (`variant_required`).
    */
   async update(auth: AuthContext, productId: string, input: ProductUpdateInput): Promise<ProductDto> {
     const { businessId } = auth;
     const current = await this.repo.findRow(businessId, productId);
     if (!current) throw ProductError.notFound();
     await this.assertCategory(businessId, input.categoryId);
-    if (input.sku) await this.assertSkuFree(businessId, input.sku, productId);
-    const { sku, ...rest } = input;
-    const next: PricePoint = { sellingPrice: input.sellingPrice ?? current.sellingPrice, costPrice: input.costPrice ?? current.costPrice };
-    const priceChanged = next.sellingPrice !== current.sellingPrice || next.costPrice !== current.costPrice;
+    const stored = await this.variants.forProducts(businessId, [productId]);
+    const options = input.options ?? productOptions(current);
+    const unit = (input.unit ?? current.unit) as Unit;
+    const sku = input.sku ?? current.sku;
+    const plain = options.length === 0;
+
+    const incoming = this.incomingVariants(current, stored, options, input);
+    if (incoming) productUpdateSchema.parse({ options, unit, variants: incoming });
+    else if (input.unit && stored.some((v) => !Number.isInteger(v.stock))) {
+      productUpdateSchema.parse({ unit, variants: stored });
+    }
+
+    const planned = incoming ? this.plan(incoming, options, sku, stored) : null;
+    const kept = new Set(planned?.flatMap((v) => (v.id ? [v.id] : [])) ?? stored.map((v) => v.id));
+    const dropped = stored.filter((v) => !kept.has(v.id));
+    if (planned) await this.assertSkus(businessId, sku, plain, planned, dropped, productId);
+    else if (input.sku) await this.assertSkus(businessId, sku, plain, [], [], productId);
 
     await this.repo.transaction(async (tx) => {
-      await this.repo.update(productId, { ...rest, ...(sku ? { sku } : {}) }, tx);
-      if (priceChanged) await this.recordPrice(auth, productId, next, tx);
+      const withOrders = await this.variants.withOrders(
+        dropped.map((v) => v.id),
+        tx,
+      );
+      await this.variants.deleteMany(
+        dropped.filter((v) => !withOrders.has(v.id)).map((v) => v.id),
+        tx,
+      );
+      await this.variants.archive(
+        dropped.filter((v) => withOrders.has(v.id) && v.status !== 'archived').map((v) => v.id),
+        tx,
+      );
+      if (planned) await this.applyVariants(auth, productId, planned, stored, tx);
+
+      await this.repo.update(
+        productId,
+        {
+          ...(input.name !== undefined ? { name: input.name } : {}),
+          ...(input.sku ? { sku: input.sku } : {}),
+          ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+          ...(input.unit ? { unit: input.unit } : {}),
+          ...(input.brand !== undefined ? { brand: input.brand } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.attributes ? { attributes: input.attributes } : {}),
+          ...(input.options ? { options: input.options } : {}),
+          ...(input.status ? { status: input.status } : {}),
+        },
+        tx,
+      );
+      await this.variants.refreshProductSummary([productId], tx);
     });
-    if (input.name !== undefined || sku || input.status !== undefined) await this.search.index(businessId, [productId]);
+    if (input.name !== undefined || input.sku || input.status !== undefined) await this.search.index(businessId, [productId]);
     return this.show(businessId, productId);
   }
 
-  /** FR-IMP-11: fill several missing costs at once. Like any cost change, it applies from today on. */
+  /** The variants an update writes: as sent, or the plain product's one variant with the legacy fields applied. */
+  private incomingVariants(current: ProductRow, stored: VariantRow[], options: Option[], input: ProductUpdateInput): VariantInput[] | null {
+    if (input.variants) return input.variants;
+    if (input.options) {
+      throw new ZodError([{ code: 'custom', path: ['variants'], message: 'Send the variants with the options' }]);
+    }
+    const legacy = (['sellingPrice', 'costPrice', 'stock'] as const).find((k) => input[k] !== undefined);
+    const only = stored.filter((v) => v.status === 'active');
+    if (!legacy) {
+      // A plain product's variant carries the product SKU.
+      if (input.sku && options.length === 0 && only.length === 1) return [{ ...only[0], sku: null, status: 'active' }];
+      return null;
+    }
+    if (options.length > 0 || only.length !== 1) throw ProductError.variantRequired(current.name, legacy);
+    const v = only[0];
+    return [
+      {
+        id: v.id,
+        optionValues: {},
+        sku: null,
+        sellingPrice: input.sellingPrice ?? v.sellingPrice,
+        costPrice: input.costPrice ?? v.costPrice,
+        stock: input.stock ?? v.stock,
+        status: 'active',
+      },
+    ];
+  }
+
+  /** Matches each incoming variant to a stored one (by id, else by option values) and fills its SKU. */
+  private plan(incoming: VariantInput[], options: Option[], productSku: string, stored: VariantRow[]): PlannedVariant[] {
+    const byId = new Map(stored.map((v) => [v.id, v]));
+    const byKey = new Map(stored.map((v) => [optionValuesKey(v.optionValues), v]));
+    const plain = options.length === 0;
+    return incoming.map((v, index) => {
+      const optionValues = canonical(v.optionValues, options);
+      const existing = v.id ? byId.get(v.id) : byKey.get(optionValuesKey(optionValues));
+      if (v.id && !existing) throw ProductError.variantNotFound();
+      return {
+        id: existing?.id,
+        index,
+        optionValues,
+        position: index,
+        sku: plain ? productSku : (v.sku ?? existing?.sku ?? suggestVariantSku(productSku, optionValues, options)),
+        sellingPrice: v.sellingPrice,
+        costPrice: v.costPrice,
+        stock: v.stock,
+        status: v.status,
+      };
+    });
+  }
+
+  private toWrite = ({ id: _id, index: _index, ...write }: PlannedVariant): VariantWrite => write;
+
+  /** Updates and creates the planned variants; a changed price or cost, or a new variant, gets a price row from today. */
+  private async applyVariants(
+    auth: AuthContext,
+    productId: string,
+    planned: PlannedVariant[],
+    stored: VariantRow[],
+    tx: Tx,
+  ): Promise<void> {
+    const byId = new Map(stored.map((v) => [v.id, v]));
+    const today = todayIn(auth.timezone);
+    for (const v of planned.filter((p) => p.id)) {
+      const before = byId.get(v.id!)!;
+      await this.variants.update(v.id!, this.toWrite(v), tx);
+      if (before.sellingPrice !== v.sellingPrice || before.costPrice !== v.costPrice) {
+        const point = { sellingPrice: v.sellingPrice, costPrice: v.costPrice };
+        await this.prices.record(auth.businessId, productId, v.id!, point, today, auth.userId, tx);
+      }
+    }
+    const fresh = planned.filter((p) => !p.id);
+    const ids = await this.variants.createMany(auth.businessId, productId, fresh.map(this.toWrite), tx);
+    await this.prices.recordMany(
+      auth.businessId,
+      fresh.map((v, i) => ({ productId, variantId: ids[i], sellingPrice: v.sellingPrice, costPrice: v.costPrice, effectiveFrom: today })),
+      auth.userId,
+      tx,
+    );
+  }
+
+  /** Product summary of planned variants: first active variant's price and cost, stock summed over active ones. */
+  private summary(planned: PlannedVariant[]): { sellingPrice: number; costPrice: number; stock: number } {
+    const active = planned.filter((v) => v.status === 'active');
+    const first = active[0] ?? planned[0];
+    return { sellingPrice: first.sellingPrice, costPrice: first.costPrice, stock: active.reduce((s, v) => s + v.stock, 0) };
+  }
+
+  /**
+   * SKUs are unique per business across products and variants. A plain product's variant shares its
+   * product's SKU; any other clash is refused on the field that holds it.
+   */
+  private async assertSkus(
+    businessId: string,
+    productSku: string,
+    plain: boolean,
+    planned: PlannedVariant[],
+    dropped: VariantRow[],
+    productId: string | undefined,
+  ): Promise<void> {
+    // A dropped variant that an order uses is archived and keeps its SKU; one without orders is deleted first, freeing it.
+    const withOrders = await this.variants.withOrders(dropped.map((v) => v.id));
+    const archivedKept = new Set(dropped.filter((v) => withOrders.has(v.id)).map((v) => v.sku));
+    const seen = new Map<string, number>();
+    if (!plain) {
+      for (const v of planned) {
+        if (seen.has(v.sku) || v.sku === productSku || archivedKept.has(v.sku)) {
+          throw ProductError.variantSkuTaken(v.sku, `variants.${v.index}.sku`);
+        }
+        seen.set(v.sku, v.index);
+      }
+    }
+    const taken = await this.variants.skusTaken(businessId, [productSku, ...seen.keys()], productId);
+    if (taken.has(productSku)) throw ProductError.skuTaken(productSku);
+    for (const [sku, index] of seen) if (taken.has(sku)) throw ProductError.variantSkuTaken(sku, `variants.${index}.sku`);
+  }
+
+  /**
+   * FR-IMP-11: fill several missing costs at once. Like any cost change, it applies from today on.
+   * A plain product's variant takes the cost; on a product with several variants, every active
+   * variant whose cost is 0 does.
+   */
   async bulkCost(auth: AuthContext, input: BulkCostInput): Promise<{ productsUpdated: number }> {
     const ids = [...new Set(input.items.map((i) => i.productId))];
     const rows = await this.repo.findManyByIds(auth.businessId, ids);
     if (rows.length !== ids.length) throw ProductError.notFound();
-    const sellingPrice = new Map(rows.map((r) => [r.id, r.sellingPrice]));
+    const variants = await this.variants.forProducts(auth.businessId, ids);
+    const today = todayIn(auth.timezone);
 
     await this.repo.transaction(async (tx) => {
       for (const item of input.items) {
-        await this.repo.update(item.productId, { costPrice: item.costPrice }, tx);
-        await this.recordPrice(auth, item.productId, { sellingPrice: sellingPrice.get(item.productId)!, costPrice: item.costPrice }, tx);
+        const active = variants.filter((v) => v.productId === item.productId && v.status === 'active');
+        const targets = active.length === 1 ? active : active.filter((v) => v.costPrice === 0);
+        for (const v of targets) {
+          await this.variants.update(v.id, { costPrice: item.costPrice }, tx);
+          const point = { sellingPrice: v.sellingPrice, costPrice: item.costPrice };
+          await this.prices.record(auth.businessId, item.productId, v.id, point, today, auth.userId, tx);
+        }
       }
+      await this.variants.refreshProductSummary(ids, tx);
     });
     return { productsUpdated: input.items.length };
   }
 
-  async priceHistory(businessId: string, productId: string): Promise<PriceHistoryRow[]> {
-    if (!(await this.repo.findRow(businessId, productId))) throw ProductError.notFound();
-    return this.prices.history(businessId, productId);
+  async priceHistory(businessId: string, productId: string): Promise<ProductPriceDto[]> {
+    const row = await this.repo.findRow(businessId, productId);
+    if (!row) throw ProductError.notFound();
+    const options = productOptions(row);
+    const history = await this.prices.history(businessId, productId);
+    return history.map((h) => ({
+      variantId: h.variantId,
+      variantLabel: variantLabel(h.optionValues, options),
+      sellingPrice: h.sellingPrice,
+      costPrice: h.costPrice,
+      effectiveFrom: h.effectiveFrom,
+      changedAt: h.changedAt.toISOString(),
+    }));
   }
 
-  /** Price and cost each product had on `date`, for the order form's backdated orders. */
-  async pricesOn(businessId: string, productIds: string[], date: string): Promise<Array<PricePoint & { productId: string }>> {
-    const prices = await this.prices.on(businessId, productIds, date);
-    return [...prices].map(([productId, p]) => ({ productId, ...p }));
-  }
-
-  private recordPrice(auth: AuthContext, productId: string, price: PricePoint, tx: Tx): Promise<void> {
-    const point = { sellingPrice: price.sellingPrice, costPrice: price.costPrice };
-    return this.prices.record(auth.businessId, productId, point, todayIn(auth.timezone), auth.userId, tx);
+  /**
+   * Price and cost each variant had on `date`, for the order form's backdated orders. A product id
+   * (the older `ids=` query) stands for that product's first variant.
+   */
+  async pricesOn(businessId: string, refs: { variantIds: string[]; productIds: string[] }, date: string): Promise<ProductPriceOnDto[]> {
+    const rows = await this.variants.withProducts(businessId, refs.variantIds, refs.productIds);
+    const wanted = new Set(refs.variantIds);
+    const chosen: VariantWithProduct[] = rows.filter((v) => wanted.has(v.id));
+    for (const productId of refs.productIds) {
+      const first = firstActive(rows.filter((v) => v.productId === productId));
+      if (first && !wanted.has(first.id)) chosen.push(first);
+    }
+    const prices = await this.prices.on(
+      businessId,
+      chosen.map((v) => v.id),
+      date,
+    );
+    return chosen.flatMap((v) => {
+      const p = prices.get(v.id);
+      return p ? [{ variantId: v.id, productId: v.productId, sellingPrice: p.sellingPrice, costPrice: p.costPrice }] : [];
+    });
   }
 
   // ── Public surface for Orders ────────────────────────────────────────
 
   /**
-   * Products of this business by id, priced as they were on `orderDate` (from the price history).
-   * Ids that are missing or belong to another business are absent.
+   * The variant on each order line, priced as on `orderDate` (from its price history), in input
+   * order. A `productId` stands for a plain product's only variant; a product with options needs a
+   * `variantId` (422 `variant_required` on `items.<i>.variantId`). A missing or foreign id is a 404.
    */
-  async productsForOrder(businessId: string, ids: string[], orderDate: string, db: Tx): Promise<Map<string, ProductForOrder>> {
-    const [rows, prices] = await Promise.all([
-      this.repo.findManyByIds(businessId, ids, db),
-      this.prices.on(businessId, ids, orderDate, db),
-    ]);
-    return new Map(
-      rows.map((p) => {
-        const dated = prices.get(p.id) ?? p; // no history row yet: today's price
-        const forOrder = { id: p.id, name: p.name, sku: p.sku, archived: p.status === 'archived' };
-        return [p.id, { ...forOrder, sellingPrice: dated.sellingPrice, costPrice: dated.costPrice }];
-      }),
-    );
+  async variantsForOrder(
+    businessId: string,
+    refs: ReadonlyArray<{ variantId?: string; productId?: string }>,
+    orderDate: string,
+    db: Tx,
+  ): Promise<VariantForOrder[]> {
+    const variantIds = [...new Set(refs.flatMap((r) => (r.variantId ? [r.variantId] : [])))];
+    const productIds = [...new Set(refs.flatMap((r) => (r.productId ? [r.productId] : [])))];
+    const rows = await this.variants.withProducts(businessId, variantIds, productIds, db);
+    const byId = new Map(rows.map((v) => [v.id, v]));
+
+    const chosen = refs.map((ref, i) => {
+      if (ref.variantId) {
+        const v = byId.get(ref.variantId);
+        if (!v) throw ProductError.notFound();
+        return v;
+      }
+      const all = rows.filter((v) => v.productId === ref.productId);
+      if (all.length === 0) throw ProductError.notFound();
+      if (all[0].options.length > 0 || all.length > 1) throw ProductError.variantRequired(all[0].productName, `items.${i}.variantId`);
+      return all[0];
+    });
+    const prices = await this.prices.on(businessId, [...new Set(chosen.map((v) => v.id))], orderDate, db);
+    return chosen.map((v) => {
+      const dated = prices.get(v.id) ?? v; // no history row yet: today's price
+      return {
+        variantId: v.id,
+        productId: v.productId,
+        productName: v.productName,
+        variantLabel: variantLabel(v.optionValues, v.options) || null,
+        sku: v.sku,
+        unit: v.unit as Unit,
+        archived: v.productStatus === 'archived' || v.status === 'archived',
+        sellingPrice: dated.sellingPrice,
+        costPrice: dated.costPrice,
+      };
+    });
   }
 
   /** direction -1 takes stock off the shelf, +1 puts it back. Stock may go negative (FR-PROD-07). */
-  async moveStock(lines: ReadonlyArray<{ productId: string; quantity: number }>, direction: 1 | -1, db: Tx): Promise<void> {
+  async moveStock(lines: ReadonlyArray<{ variantId: string; quantity: number }>, direction: 1 | -1, db: Tx): Promise<void> {
     const deltas = new Map<string, number>();
-    for (const line of lines) deltas.set(line.productId, (deltas.get(line.productId) ?? 0) + direction * line.quantity);
-    await this.repo.adjustStock(deltas, db);
+    for (const line of lines) deltas.set(line.variantId, (deltas.get(line.variantId) ?? 0) + direction * line.quantity);
+    const productIds = await this.variants.adjustStock(deltas, db);
+    await this.variants.refreshProductSummary(productIds, db);
   }
 
   // ── Public surface for Imports ───────────────────────────────────────
 
-  /**
-   * FR-IMP-08: finds each spreadsheet product by SKU, then by exact name (trimmed, any case), and
-   * creates the rest in one INSERT: the row's SKU or the next PRD- numbers, the first row's price,
-   * the first cost given (0 when none), tagged with the import. Each new product gets one price row,
-   * effective from the earliest order date that uses it. Fixed number of statements, whatever the size.
-   * Returns the products by importProductKey(), and the ids created (to index after the transaction).
-   */
-  async resolveForImport(
+  /** See ProductsImportService.resolve: each line's variant by importLineKey(), created where missing. */
+  resolveForImport(
     businessId: string,
     refs: ReadonlyArray<ImportProductRef>,
     importId: string,
     createdById: string | null,
+    defaultUnit: Unit,
     db: Tx,
   ): Promise<{ products: Map<string, ImportProduct>; createdIds: string[] }> {
-    // One entry per key, in first-seen order.
-    const wanted = new Map<string, { sku: string | null; name: string; unitPrice: number; unitCost: number | null; firstDate: string }>();
-    for (const ref of refs) {
-      const key = importProductKey(ref);
-      const seen = wanted.get(key);
-      if (!seen) {
-        const sku = ref.sku?.trim() || null;
-        wanted.set(key, { sku, name: ref.name.trim(), unitPrice: ref.unitPrice, unitCost: ref.unitCost, firstDate: ref.orderDate });
-      } else {
-        seen.unitCost ??= ref.unitCost;
-        if (ref.orderDate < seen.firstDate) seen.firstDate = ref.orderDate;
-      }
-    }
+    return this.importer.resolve(businessId, refs, importId, createdById, defaultUnit, db);
+  }
 
-    const lower = (s: string) => s.trim().toLowerCase();
-    const entries = [...wanted.entries()];
-    const skus = entries.flatMap(([, w]) => (w.sku ? [lower(w.sku)] : []));
-    const names = entries.map(([, w]) => lower(w.name));
-    const rows = await this.repo.findBySkusOrNames(businessId, skus, names, db);
-    const bySku = new Map<string, (typeof rows)[number]>();
-    const byName = new Map<string, (typeof rows)[number]>();
-    for (const r of rows) {
-      if (!bySku.has(lower(r.sku))) bySku.set(lower(r.sku), r);
-      if (!byName.has(lower(r.name))) byName.set(lower(r.name), r);
-    }
-
-    const matched = new Map<string, (typeof rows)[number]>();
-    const unmatched: Array<[string, (typeof entries)[number][1]]> = [];
-    for (const [key, w] of entries) {
-      const found = (w.sku ? bySku.get(lower(w.sku)) : undefined) ?? byName.get(lower(w.name));
-      if (found) matched.set(key, found);
-      else unmatched.push([key, w]);
-    }
-
-    // New products: a SKU from the file is kept; a name-only line reuses a new product of the same
-    // name, or gets the next PRD- number after any in use (in the business or in this file).
-    const fresh: Array<{ keys: string[]; sku: string; w: (typeof entries)[number][1] }> = [];
-    const freshByName = new Map<string, (typeof fresh)[number]>();
-    for (const [key, w] of unmatched.filter(([, w]) => w.sku)) {
-      const product = { keys: [key], sku: w.sku!.toUpperCase(), w };
-      fresh.push(product);
-      if (!freshByName.has(lower(w.name))) freshByName.set(lower(w.name), product);
-    }
-    let lastSku = Math.max(
-      await this.repo.maxGeneratedSku(businessId, db),
-      ...fresh.map((f) => Number(GENERATED_SKU.exec(f.sku)?.[1] ?? 0)),
-    );
-    for (const [key, w] of unmatched.filter(([, w]) => !w.sku)) {
-      const same = freshByName.get(lower(w.name));
-      if (same) {
-        same.keys.push(key);
-        same.w.unitCost ??= w.unitCost;
-        if (w.firstDate < same.w.firstDate) same.w.firstDate = w.firstDate;
-        continue;
-      }
-      lastSku += 1;
-      fresh.push({ keys: [key], sku: `PRD-${String(lastSku).padStart(4, '0')}`, w });
-    }
-
-    const inserted = await this.repo.createMany(
-      businessId,
-      fresh.map((f) => ({ name: f.w.name, sku: f.sku, sellingPrice: f.w.unitPrice, costPrice: f.w.unitCost ?? 0, importId })),
-      db,
-    );
-    const idBySku = new Map(inserted.map((p) => [p.sku, p.id]));
-    await this.prices.recordMany(
-      businessId,
-      fresh.map((f) => ({
-        productId: idBySku.get(f.sku)!,
-        sellingPrice: f.w.unitPrice,
-        costPrice: f.w.unitCost ?? 0,
-        effectiveFrom: f.w.firstDate,
-      })),
-      createdById,
-      db,
-    );
-
-    const history = await this.prices.costHistory(businessId, [...new Set([...matched.values()].map((p) => p.id))], db);
-    const products = new Map<string, ImportProduct>();
-    for (const [key, p] of matched) {
-      products.set(key, {
-        id: p.id,
-        name: p.name,
-        sku: p.sku,
-        costPrice: p.costPrice,
-        costOn: costOnFrom(history.get(p.id) ?? [], p.costPrice),
-      });
-    }
-    for (const f of fresh) {
-      const cost = f.w.unitCost ?? 0;
-      const product = { id: idBySku.get(f.sku)!, name: f.w.name, sku: f.sku, costPrice: cost, costOn: () => cost };
-      for (const key of f.keys) products.set(key, product);
-    }
-    return { products, createdIds: inserted.map((p) => p.id) };
+  /** The unit of each existing product these lines name, by importProductKey(), for the whole-number check. */
+  unitsForImport(businessId: string, refs: ReadonlyArray<{ sku: string | null; name: string }>, db: Tx): Promise<Map<string, Unit>> {
+    return this.importer.unitsFor(businessId, refs, db);
   }
 
   /**
-   * FR-IMP-12: deletes the products this import created that no order line uses (run after its orders
-   * are gone); their price rows cascade. Returns the deleted ids, to pass to syncSearch after the commit.
+   * FR-IMP-12: deletes what this import created that no order line uses (run after its orders are gone):
+   * its products (variants and price rows cascade) and the variants it added to other products.
+   * Returns the deleted product ids, to pass to syncSearch after the commit.
    */
   deleteUnusedFromImport(businessId: string, importId: string, db: Tx): Promise<string[]> {
-    return this.repo.deleteUnusedFromImport(businessId, importId, db);
+    return this.importer.deleteUnused(businessId, importId, db);
   }
 
   /**
@@ -324,6 +516,29 @@ export class ProductsService {
    */
   syncSearch(businessId: string, productIds: string[]): Promise<void> {
     return this.search.index(businessId, productIds);
+  }
+
+  // ── Saved option lists ───────────────────────────────────────────────
+
+  /** At registration, in its transaction: the preset lists for the business type (none for Other or unknown). */
+  seedOptionLists(businessId: string, businessType: string | null, db: Tx): Promise<void> {
+    return this.optionLists.seed(businessId, presetOptionLists(businessType), db);
+  }
+
+  async createOptionList(businessId: string, input: OptionListInput): Promise<OptionListDto> {
+    if (await this.optionLists.nameTaken(businessId, input.name)) throw OptionListError.nameTaken(input.name);
+    return this.optionLists.create(businessId, input);
+  }
+
+  async updateOptionList(businessId: string, id: string, input: OptionListUpdateInput): Promise<OptionListDto> {
+    if (!(await this.optionLists.exists(businessId, id))) throw OptionListError.notFound();
+    if (input.name && (await this.optionLists.nameTaken(businessId, input.name, id))) throw OptionListError.nameTaken(input.name);
+    return this.optionLists.update(id, input);
+  }
+
+  async deleteOptionList(businessId: string, id: string): Promise<void> {
+    if (!(await this.optionLists.exists(businessId, id))) throw OptionListError.notFound();
+    await this.optionLists.delete(id);
   }
 
   // ── Categories ───────────────────────────────────────────────────────

@@ -1,7 +1,10 @@
+import { lineAmount } from './products';
+
 /**
  * The one definition of an order's money (FR-ORD-05, SRS 6.4). The API stores these
  * numbers; the order form shows the same calculation live, so the estimate the seller
- * sees is exactly what gets saved.
+ * sees is exactly what gets saved. Each line is rounded to whole poisha (`lineAmount`), so a
+ * decimal quantity (2.5 kg) never leaves a fraction of a poisha.
  */
 export interface TotalsLine {
   quantity: number;
@@ -24,8 +27,8 @@ export function orderTotals(
   lines: readonly TotalsLine[],
   amounts: { discount: number; deliveryCharge: number; courierCost?: number; packagingCost?: number },
 ): OrderTotals {
-  const subtotal = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
-  const productCost = lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+  const subtotal = lines.reduce((sum, l) => sum + lineAmount(l.quantity, l.unitPrice), 0);
+  const productCost = lines.reduce((sum, l) => sum + lineAmount(l.quantity, l.unitCost), 0);
   const total = subtotal - amounts.discount + amounts.deliveryCharge;
   return {
     subtotal,

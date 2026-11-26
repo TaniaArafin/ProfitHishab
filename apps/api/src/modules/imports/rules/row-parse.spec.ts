@@ -1,5 +1,5 @@
 import type { ImportMapping } from '@ph/shared';
-import { dedupeHash, parseAmount, parseImportDate, parseQuantity, parseRow, rowProblems, type NormalizedRow } from './row-parse';
+import { dedupeHash, parseAmount, parseImportDate, parseQuantity, parseRow, parseUnit, rowProblems, type NormalizedRow } from './row-parse';
 
 const ctx = { today: '2026-11-11', couriers: new Map([['pathao', 'courier-1']]) };
 const columns = { phone: 'Phone', product: 'Product', quantity: 'Qty', sellingPrice: 'Price' } as const;
@@ -26,9 +26,67 @@ describe('parseQuantity', () => {
     ['2', 2],
     ['০৩', 3],
     ['0', null],
-    ['1.5', null],
+    ['1.5', 1.5],
+    ['2.125', 2.125],
+    ['০.৫', 0.5],
+    ['1.2345', null],
+    ['-1', null],
     ['', null],
   ])('%s -> %s', (cell, expected) => expect(parseQuantity(cell)).toBe(expected));
+});
+
+describe('parseUnit', () => {
+  it.each([
+    ['kg', 'kg'],
+    ['KG', 'kg'],
+    ['কেজি', 'kg'],
+    ['pcs', 'piece'],
+    ['Litre', 'litre'],
+    ['ltr', 'litre'],
+    ['gm', 'gram'],
+    ['ডজন', 'dozen'],
+    ['', null],
+    ['bucket', null],
+  ])('%s -> %s', (cell, expected) => expect(parseUnit(cell)).toBe(expected));
+});
+
+describe('variants, units and decimal quantities in a row', () => {
+  const vMapping: ImportMapping = {
+    columns: { ...columns, size: 'Size', colour: 'Colour', unit: 'Unit' },
+    statuses: {},
+  };
+
+  it('reads Size and Colour into option values, only for filled cells', () => {
+    const r = parseRow({ ...base, Size: ' M ', Colour: 'Red', Unit: '' }, vMapping, ctx);
+    expect(r.ok && r.value.optionValues).toEqual({ Size: 'M', Colour: 'Red' });
+    const plain = parseRow({ ...base, Size: '', Colour: '', Unit: '' }, vMapping, ctx);
+    expect(plain.ok && plain.value.optionValues).toEqual({});
+  });
+
+  it('takes 2.5 kg of rice', () => {
+    const r = parseRow({ ...base, Product: 'Miniket Rice', Qty: '2.5', Unit: 'kg' }, vMapping, ctx);
+    expect(r.ok && r.value).toMatchObject({ quantity: 2.5, unit: 'kg' });
+  });
+
+  it('refuses 1.5 of a piece product, by its own unit, the stored unit or the default', () => {
+    expect(parseRow({ ...base, Qty: '1.5', Unit: 'pcs' }, vMapping, ctx)).toEqual({ ok: false, reasons: ['quantity_not_whole'] });
+    const stored = { ...ctx, unitOf: (ref: { name: string }) => (ref.name === 'Gift Box' ? ('piece' as const) : null) };
+    expect(parseRow({ ...base, Product: 'Gift Box', Qty: '1.5' }, mapping, stored)).toEqual({ ok: false, reasons: ['quantity_not_whole'] });
+    expect(parseRow({ ...base, Qty: '1.5' }, mapping, { ...ctx, defaultUnit: 'kg' as const }).ok).toBe(true);
+  });
+
+  it('warns about a unit it does not know and leaves it out', () => {
+    const r = parseRow({ ...base, Unit: 'bucket' }, vMapping, ctx);
+    expect(r.ok && r.value.unit).toBeNull();
+    expect(r.ok && r.warnings).toContain('unit_unknown');
+  });
+
+  it('keeps M and L of one product on the same day apart in the fingerprint', () => {
+    const m = parseRow({ ...base, Size: 'M', Colour: '', Unit: '' }, vMapping, ctx);
+    const l = parseRow({ ...base, Size: 'L', Colour: '', Unit: '' }, vMapping, ctx);
+    if (!m.ok || !l.ok) throw new Error('rows should parse');
+    expect(dedupeHash(m.value)).not.toBe(dedupeHash(l.value));
+  });
 });
 
 describe('parseImportDate', () => {
@@ -136,6 +194,8 @@ describe('dedupeHash', () => {
     externalRef: null,
     sku: null,
     productName: 'Saree',
+    optionValues: {},
+    unit: null,
     quantity: 1,
     unitPrice: 100,
     unitCost: null,
@@ -174,7 +234,7 @@ describe('rowProblems', () => {
     ).toEqual({
       phone: 'Enter a number like 017XXXXXXXX',
       product: 'Enter the product name',
-      quantity: 'Enter a whole number of 1 or more',
+      quantity: 'Enter a number above 0, like 2 or 2.5',
       sellingPrice: 'Enter an amount like 1250',
       orderDate: 'Enter a date like 2026-10-31',
       productCost: 'Enter an amount like 1250',

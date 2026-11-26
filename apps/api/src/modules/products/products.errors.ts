@@ -10,6 +10,25 @@ export class ProductError extends AppError {
     return new ProductError(409, 'sku_taken', message, { sku: [message] });
   }
 
+  /** A variant SKU used by another variant of this product or by another product. `field` is `variants.<i>.sku`. */
+  static variantSkuTaken(sku: string, field: string): ProductError {
+    const message = `SKU ${sku} is already used.`;
+    return new ProductError(409, 'sku_taken', message, { [field]: [message] });
+  }
+
+  static variantNotFound(): ProductError {
+    return new ProductError(404, 'variant_not_found', 'Variant not found.');
+  }
+
+  /**
+   * A product with several variants was named without saying which one: an order line by
+   * `productId`, or a single price/stock update. `field` names the input to fix.
+   */
+  static variantRequired(name: string, field: string): ProductError {
+    const message = `${name} has several variants. Pick one.`;
+    return new ProductError(422, 'variant_required', message, { [field]: [message] });
+  }
+
   /** An archived product can stay on old orders but cannot be added to a new one. */
   static archived(name: string): ProductError {
     const message = `${name} is archived. Restore it before adding it to an order.`;
@@ -26,5 +45,16 @@ export class CategoryError extends AppError {
   static nameTaken(name: string): CategoryError {
     const message = `A category called "${name}" already exists.`;
     return new CategoryError(409, 'category_name_taken', message, { name: [message] });
+  }
+}
+
+export class OptionListError extends AppError {
+  static notFound(): OptionListError {
+    return new OptionListError(404, 'option_list_not_found', 'Option list not found.');
+  }
+
+  static nameTaken(name: string): OptionListError {
+    const message = `A list called "${name}" already exists.`;
+    return new OptionListError(409, 'option_list_taken', message, { name: [message] });
   }
 }

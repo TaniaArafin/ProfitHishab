@@ -12,6 +12,8 @@ import {
   type ImportRowsQuery,
   type ImportStatus,
   type ImportUndoResultDto,
+  type Unit,
+  businessTypeDefaults,
 } from '@ph/shared';
 import type { AuthContext } from '../../common/auth';
 import type { Tx } from '../../common/prisma.service';
@@ -19,7 +21,7 @@ import { toCsv } from '../../common/csv';
 import { BusinessService } from '../business/business.service';
 import { CustomersService } from '../customers/customers.service';
 import { OrdersService, type ImportedOrder } from '../orders/orders.service';
-import { importProductKey, ProductsService, type ImportProduct } from '../products/products.service';
+import { importLineKey, importProductKey, ProductsService, type ImportProduct } from '../products/products.service';
 import { headersKey } from './headers-key';
 import { ImportMappingsRepository } from './import-mappings.repository';
 import { ImportError } from './imports.errors';
@@ -224,10 +226,19 @@ export class ImportsService {
         const { products, createdIds } = await this.products.resolveForImport(
           businessId,
           groups.flatMap((g) =>
-            g.items.map((i) => ({ sku: i.sku, name: i.productName, unitPrice: i.unitPrice, unitCost: i.unitCost, orderDate: g.orderDate })),
+            g.items.map((i) => ({
+              sku: i.sku,
+              name: i.productName,
+              optionValues: i.optionValues,
+              unit: i.unit,
+              unitPrice: i.unitPrice,
+              unitCost: i.unitCost,
+              orderDate: g.orderDate,
+            })),
           ),
           id,
           userId,
+          await this.defaultUnit(businessId),
           tx,
         );
 
@@ -249,11 +260,13 @@ export class ImportsService {
             deliveryCharge: g.deliveryCharge,
             courierCost: g.courierCost,
             items: g.items.map((i) => {
-              const product = products.get(importProductKey({ sku: i.sku, name: i.productName }))!;
+              const product = products.get(importLineKey({ sku: i.sku, name: i.productName, optionValues: i.optionValues }))!;
               used.set(product.id, product);
               return {
                 productId: product.id,
+                variantId: product.variantId,
                 productName: product.name,
+                variantLabel: product.variantLabel,
                 sku: product.sku,
                 quantity: i.quantity,
                 unitPrice: i.unitPrice,
@@ -353,16 +366,31 @@ export class ImportsService {
   private async checkRows(businessId: string, id: string, mapping: ImportMapping, tx: Tx): Promise<void> {
     const rows = await this.repo.allRows(businessId, id, tx);
     const couriers = await this.business.couriersByName(businessId, tx);
-    const prepared = prepareRows(
-      rows.map((r) => ({ rowNumber: r.rowNumber, raw: toRawCells(r.raw) })),
-      mapping,
-      { today: todayIn(), couriers },
+    const raws = rows.map((r) => ({ rowNumber: r.rowNumber, raw: toRawCells(r.raw) }));
+    // Units of the products the rows name, so 1.5 of a piece product is refused before commit.
+    const cellOf = (raw: Record<string, string>, header: string | undefined) => (header === undefined ? '' : (raw[header] ?? '').trim());
+    const units = await this.products.unitsForImport(
+      businessId,
+      raws.map(({ raw }) => ({ sku: cellOf(raw, mapping.columns.sku) || null, name: cellOf(raw, mapping.columns.product) })),
+      tx,
     );
+    const prepared = prepareRows(raws, mapping, {
+      today: todayIn(),
+      couriers,
+      unitOf: (ref) =>
+        units.get(importProductKey(ref)) ?? (ref.sku ? units.get(importProductKey({ sku: null, name: ref.name })) : null) ?? null,
+      defaultUnit: await this.defaultUnit(businessId),
+    });
     const existing = await this.orders.existingImportKeys(businessId, prepared.refs, prepared.hashes, tx);
     const { results, counts } = rowVerdicts(prepared, existing);
     // Every row is re-checked, but only verdicts that changed are written: after one inline fix that is a few rows.
     await this.repo.writeValidation(id, changedRows(rows, results), tx);
     await this.repo.setStatus(id, 'validated', counts, tx);
+  }
+
+  /** The unit a new product gets: the business type's default (spec §6). */
+  private async defaultUnit(businessId: string): Promise<Unit> {
+    return businessTypeDefaults((await this.business.profile(businessId)).businessType).unit;
   }
 
   private async toDto(businessId: string, imp: ImportRecord): Promise<ImportDto> {

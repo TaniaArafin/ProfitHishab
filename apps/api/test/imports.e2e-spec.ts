@@ -1015,6 +1015,7 @@ describe('Imports (e2e)', () => {
         data: {
           businessId: biz,
           productId: silk.body.data.id,
+          variantId: silk.body.data.variants[0].id,
           sellingPrice: 400000,
           costPrice: 150000,
           effectiveFrom: new Date('2026-10-01'),
@@ -1432,6 +1433,89 @@ describe('Imports (e2e)', () => {
       const retry = await undo(seller, id);
       expect(retry.status).toBe(200);
       expect(retry.body.data).toEqual({ ordersDeleted: 2, customersDeleted: 2, productsDeleted: 2 });
+    });
+  });
+
+  describe('variants, units and decimal quantities (spec §9)', () => {
+    const columns = {
+      phone: 'Mobile',
+      product: 'Item',
+      size: 'Size',
+      colour: 'Colour',
+      unit: 'Unit',
+      quantity: 'Qty',
+      sellingPrice: 'Price',
+    };
+    const header = ['Mobile', 'Item', 'Size', 'Colour', 'Unit', 'Qty', 'Price'];
+    const productsNamed = async (seller: Client, q: string) =>
+      (
+        (await seller.get(`/products?q=${encodeURIComponent(q)}`)).body.data as Array<{
+          id: string;
+          name: string;
+          unit: string;
+          variants: Array<{ label: string; id: string }>;
+        }>
+      ).filter((p) => p.name === q);
+
+    it('suggests the Size, Colour and Unit columns', async () => {
+      const seller = await registerSeller(app, 'variant-cols@imports.test');
+      const up = await seller.upload(
+        '/imports',
+        'file',
+        sheet(header, [['01712345678', 'Kurti', 'M', 'Red', 'pcs', 1, 1250]]),
+        'orders.xlsx',
+      );
+      expect(up.body.data.suggestedColumns).toMatchObject({ size: 'Size', colour: 'Colour', unit: 'Unit' });
+    });
+
+    it('imports M / Red and L / Red as one product with two variants, then matches them again', async () => {
+      const seller = await registerSeller(app, 'variant-import@imports.test');
+      const file = sheet(header, [
+        ['01712345678', 'Cotton Kurti', 'M', 'Red', '', 2, 1250],
+        ['01812345678', 'Cotton Kurti', 'L', 'Red', '', 1, 1250],
+      ]);
+      const id = await validated(seller, file, columns);
+      const res = await commit(seller, id);
+      expect(res.body.data).toMatchObject({ ordersCreated: 2, productsCreated: 1 });
+      const [kurti] = await productsNamed(seller, 'Cotton Kurti');
+      expect(kurti.variants.map((v) => v.label)).toEqual(['M / Red', 'L / Red']);
+
+      const again = await validated(seller, sheet(header, [['01912345678', 'cotton kurti', 'm', 'red', '', 1, 1250]]), columns);
+      expect((await commit(seller, again)).body.data).toMatchObject({ ordersCreated: 1, productsCreated: 0 });
+      const [after] = await productsNamed(seller, 'Cotton Kurti');
+      expect(after.variants).toHaveLength(2);
+      const orders = (await seller.get('/orders?perPage=10')).body.data as Array<{ id: string }>;
+      const newest = (await seller.get(`/orders/${orders[0].id}`)).body.data;
+      expect(newest.items[0]).toMatchObject({ variantLabel: 'M / Red', variantId: kurti.variants[0].id });
+
+      // A new size on the existing product is added as a variant; undo removes it again.
+      const xl = await validated(seller, sheet(header, [['01612345678', 'Cotton Kurti', 'XL', 'Red', '', 1, 1350]]), columns);
+      expect((await commit(seller, xl)).body.data).toMatchObject({ ordersCreated: 1, productsCreated: 0 });
+      expect((await productsNamed(seller, 'Cotton Kurti'))[0].variants.map((v) => v.label)).toEqual(['M / Red', 'L / Red', 'XL / Red']);
+      expect((await seller.send('post', `/imports/${xl}/undo`)).status).toBe(200);
+      expect((await productsNamed(seller, 'Cotton Kurti'))[0].variants.map((v) => v.label)).toEqual(['M / Red', 'L / Red']);
+    });
+
+    it('imports 2.5 kg of rice', async () => {
+      const seller = await registerSeller(app, 'rice-import@imports.test');
+      const id = await validated(seller, sheet(header, [['01712345678', 'Miniket Rice', '', '', 'kg', 2.5, 78]]), columns);
+      expect((await commit(seller, id)).body.data).toMatchObject({ ordersCreated: 1, productsCreated: 1 });
+      const [rice] = await productsNamed(seller, 'Miniket Rice');
+      expect(rice.unit).toBe('kg');
+      const orders = (await seller.get('/orders')).body.data as Array<{ id: string }>;
+      const order = (await seller.get(`/orders/${orders[0].id}`)).body.data;
+      expect(order.items[0]).toMatchObject({ quantity: 2.5, lineTotal: 19500, unit: 'kg' });
+    });
+
+    it('refuses 1.5 of an existing piece product on the Qty cell', async () => {
+      const seller = await registerSeller(app, 'giftbox-import@imports.test');
+      await seller.send('post', '/products', { name: 'Gift Box', sellingPrice: 35000, costPrice: 12000 });
+      const small = { phone: 'Mobile', product: 'Item', quantity: 'Qty', sellingPrice: 'Price' };
+      const id = await validated(seller, sheet(['Mobile', 'Item', 'Qty', 'Price'], [['01712345678', 'Gift Box', 1.5, 350]]), small);
+      const rows = (await seller.get(`/imports/${id}/rows?status=invalid`)).body.data;
+      expect(rows).toHaveLength(1);
+      expect(rows[0].reasons).toEqual(['quantity_not_whole']);
+      expect(rows[0].problems).toHaveProperty('quantity');
     });
   });
 });

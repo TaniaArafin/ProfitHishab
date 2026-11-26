@@ -213,6 +213,20 @@ describe('ProfitHishab API (e2e)', () => {
     });
     expect(steal.status).toBe(404);
 
+    // product_variants: by variantId on an order, and on prices-on
+    const variantId = product.body.data.variants[0].id;
+    const stealVariant = await intruder.send('post', '/orders', {
+      customer: { phone: '01912345678' },
+      items: [{ variantId, quantity: 1 }],
+    });
+    expect(stealVariant.status).toBe(404);
+    expect((await intruder.get(`/products/prices-on?variantIds=${variantId}&date=2026-10-01`)).body.data).toEqual([]);
+
+    // option_lists
+    const list = await owner.send('post', '/option-lists', { name: 'Secret size', values: ['S'] });
+    expect((await intruder.send('patch', `/option-lists/${list.body.data.id}`, { name: 'Mine' })).status).toBe(404);
+    expect((await intruder.get('/option-lists')).body.data).toEqual([]);
+
     expect((await intruder.get('/orders')).body.meta.total).toBe(0);
     expect((await intruder.get('/products')).body.meta.total).toBe(0);
     expect((await intruder.get('/customers')).body.meta.total).toBe(0);

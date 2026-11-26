@@ -9,6 +9,8 @@ const row = (over: Partial<NormalizedRow> = {}): NormalizedRow => ({
   externalRef: null,
   sku: null,
   productName: 'Saree',
+  optionValues: {},
+  unit: null,
   quantity: 1,
   unitPrice: 100000,
   unitCost: null,

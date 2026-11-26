@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  allowsDecimal,
   canTransition,
   holdsStock,
+  lineAmount,
   orderTotals,
+  UNIT_LABELS,
   todayIn,
   type BulkStatusInput,
   type OrderCreateInput,
@@ -110,7 +113,7 @@ export class OrdersService {
 
     const rows = orders.map((o) => {
       const d = defaults.get(o.courierId)!;
-      const items = o.items.map((i) => ({ ...i, lineTotal: i.unitPrice * i.quantity }));
+      const items = o.items.map((i) => ({ ...i, lineTotal: lineAmount(i.quantity, i.unitPrice) }));
       const dayStart = startOfDayIn(o.orderDate, d.timezone);
       return {
         order: {
@@ -318,7 +321,10 @@ export class OrdersService {
     return to === 'cancelled' ? OrderError.cannotCancel(from) : OrderError.cannotReturn(from);
   }
 
-  /** New lines take the price and cost in effect on the order date; lines already on the order keep theirs. */
+  /**
+   * New lines take the variant's price and cost in effect on the order date; lines already on the
+   * order (same variant) keep theirs. A decimal quantity is refused for a unit sold whole.
+   */
   private async buildItems(
     businessId: string,
     input: ItemInput[],
@@ -326,23 +332,27 @@ export class OrdersService {
     tx: Tx,
     existing?: OrderWithItems,
   ): Promise<NewOrderItem[]> {
-    const products = await this.products.productsForOrder(businessId, [...new Set(input.map((i) => i.productId))], orderDate, tx);
-    const previous = new Map(existing?.items.map((i) => [i.productId, i]) ?? []);
+    const variants = await this.products.variantsForOrder(businessId, input, orderDate, tx);
+    const previous = new Map(existing?.items.map((i) => [i.variantId, i]) ?? []);
 
-    return input.map((item) => {
-      const product = products.get(item.productId);
-      if (!product) throw ProductError.notFound();
-      const before = previous.get(item.productId);
-      if (product.archived && !before) throw ProductError.archived(product.name);
-      const unitPrice = item.unitPrice ?? before?.unitPrice ?? product.sellingPrice;
+    return input.map((item, index) => {
+      const v = variants[index];
+      const before = previous.get(v.variantId);
+      if (v.archived && !before) throw ProductError.archived(v.variantLabel ? `${v.productName} — ${v.variantLabel}` : v.productName);
+      if (!allowsDecimal(v.unit) && !Number.isInteger(item.quantity)) {
+        throw OrderError.wholeQuantityRequired(v.productName, UNIT_LABELS[v.unit], index);
+      }
+      const unitPrice = item.unitPrice ?? before?.unitPrice ?? v.sellingPrice;
       return {
-        productId: product.id,
-        productName: before?.productName ?? product.name,
-        sku: before?.sku ?? product.sku,
+        productId: v.productId,
+        variantId: v.variantId,
+        productName: before?.productName ?? v.productName,
+        variantLabel: before ? before.variantLabel : v.variantLabel,
+        sku: before?.sku ?? v.sku,
         quantity: item.quantity,
         unitPrice,
-        unitCost: before?.unitCost ?? product.costPrice,
-        lineTotal: unitPrice * item.quantity,
+        unitCost: before?.unitCost ?? v.costPrice,
+        lineTotal: lineAmount(item.quantity, unitPrice),
       };
     });
   }

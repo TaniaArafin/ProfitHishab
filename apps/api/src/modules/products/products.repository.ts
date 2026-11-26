@@ -25,6 +25,11 @@ export interface ProductRow {
   costPrice: number;
   stock: number;
   status: string;
+  unit: string;
+  brand: string | null;
+  description: string | null;
+  attributes: unknown;
+  options: unknown;
 }
 
 export interface MissingCostRow {
@@ -59,10 +64,17 @@ export class ProductsRepository {
   async paginate(businessId: string, f: ProductListFilters): Promise<{ rows: ProductRow[]; total: number }> {
     const where: Prisma.Sql[] = [Prisma.sql`p."businessId" = ${businessId}::uuid`];
     if (f.ids) where.push(Prisma.sql`p.id = ANY(${f.ids}::uuid[])`);
-    else if (f.q) where.push(Prisma.sql`(p.name ILIKE ${`%${f.q}%`} OR p.sku ILIKE ${`%${f.q}%`})`);
+    else if (f.q) {
+      const like = `%${f.q}%`;
+      where.push(Prisma.sql`(p.name ILIKE ${like} OR p.sku ILIKE ${like}
+        OR EXISTS (SELECT 1 FROM product_variants v WHERE v."productId" = p.id AND v.sku ILIKE ${like}))`);
+    }
     if (f.categoryId) where.push(Prisma.sql`p."categoryId" = ${f.categoryId}::uuid`);
     if (f.status) where.push(Prisma.sql`p.status = ${f.status}`);
-    if (f.costMissing) where.push(Prisma.sql`p."costPrice" = 0`);
+    if (f.costMissing)
+      where.push(
+        Prisma.sql`EXISTS (SELECT 1 FROM product_variants v WHERE v."productId" = p.id AND v.status = 'active' AND v."costPrice" = 0)`,
+      );
     const whereSql = Prisma.join(where, ' AND ');
 
     const desc = f.sort?.startsWith('-') ?? false;
@@ -75,7 +87,8 @@ export class ProductsRepository {
     const [rows, count] = await Promise.all([
       this.prisma.$queryRaw<ProductRow[]>`
         SELECT p.id, p.name, p.sku, p."categoryId", c.name AS "categoryName",
-               p."sellingPrice", p."costPrice", p.stock, p.status
+               p."sellingPrice", p."costPrice", p.stock, p.status,
+               p.unit, p.brand, p.description, p.attributes, p.options
         FROM products p
         LEFT JOIN categories c ON c.id = p."categoryId"
         WHERE ${whereSql}
@@ -104,8 +117,8 @@ export class ProductsRepository {
     return this.prisma.product.count();
   }
 
-  async findRow(businessId: string, productId: string): Promise<ProductRow | null> {
-    const p = await this.prisma.product.findFirst({
+  async findRow(businessId: string, productId: string, db: Tx = this.prisma): Promise<ProductRow | null> {
+    const p = await db.product.findFirst({
       where: { id: productId, businessId },
       include: { category: { select: { name: true } } },
     });
@@ -149,10 +162,10 @@ export class ProductsRepository {
     skus: string[],
     names: string[],
     db: Tx,
-  ): Promise<Array<{ id: string; name: string; sku: string; costPrice: number }>> {
+  ): Promise<Array<{ id: string; name: string; sku: string; costPrice: number; unit: string; options: unknown }>> {
     if (skus.length === 0 && names.length === 0) return Promise.resolve([]);
     return db.$queryRaw`
-      SELECT id, name, sku, "costPrice" FROM products
+      SELECT id, name, sku, "costPrice", unit, options FROM products
       WHERE "businessId" = ${businessId}::uuid
         AND (lower(btrim(sku)) = ANY(${skus}::text[]) OR lower(btrim(name)) = ANY(${names}::text[]))
       ORDER BY (status = 'archived'), "createdAt", id`;
@@ -161,7 +174,15 @@ export class ProductsRepository {
   /** One INSERT for many products; returns each new product's id and SKU. */
   createMany(
     businessId: string,
-    rows: Array<{ name: string; sku: string; sellingPrice: number; costPrice: number; importId: string | null }>,
+    rows: Array<{
+      name: string;
+      sku: string;
+      sellingPrice: number;
+      costPrice: number;
+      unit?: string;
+      options?: Array<{ name: string; values: string[] }>;
+      importId: string | null;
+    }>,
     db: Tx,
   ): Promise<Array<{ id: string; sku: string }>> {
     if (rows.length === 0) return Promise.resolve([]);
@@ -189,21 +210,6 @@ export class ProductsRepository {
     return db.product.update({ where: { id: productId }, data, select: { id: true } });
   }
 
-  /**
-   * Adds each delta to its product's stock in one statement
-   * (laravel-eloquent: bulk-upsert-instead-of-loop). Deltas for the same product are summed first.
-   */
-  async adjustStock(deltas: Map<string, number>, db: Tx): Promise<void> {
-    const entries = [...deltas.entries()].filter(([, delta]) => delta !== 0);
-    if (entries.length === 0) return;
-    const ids = entries.map(([id]) => id);
-    const amounts = entries.map(([, delta]) => delta);
-    await db.$executeRaw`
-      UPDATE products p SET stock = p.stock + v.delta, "updatedAt" = now()
-      FROM (SELECT unnest(${ids}::uuid[]) AS id, unnest(${amounts}::int[]) AS delta) v
-      WHERE p.id = v.id`;
-  }
-
   async countOrdersWithProduct(businessId: string, productId: string): Promise<number> {
     const [row] = await this.prisma.$queryRaw<[{ count: number }]>`
       SELECT count(DISTINCT "orderId")::int AS count FROM order_items
@@ -214,12 +220,13 @@ export class ProductsRepository {
   missingCost(businessId: string): Promise<MissingCostRow[]> {
     return this.prisma.$queryRaw<MissingCostRow[]>`
       SELECT p.id, p.name, p.sku, p."sellingPrice",
-             coalesce(sum(oi.quantity) FILTER (WHERE o.status = 'delivered'), 0)::int AS "unitsSold",
+             coalesce(sum(oi.quantity) FILTER (WHERE o.status = 'delivered'), 0)::float8 AS "unitsSold",
              count(DISTINCT oi."orderId")::int AS "orderCount"
       FROM products p
       LEFT JOIN order_items oi ON oi."productId" = p.id
       LEFT JOIN orders o ON o.id = oi."orderId"
-      WHERE p."businessId" = ${businessId}::uuid AND p."costPrice" = 0 AND p.status = 'active'
+      WHERE p."businessId" = ${businessId}::uuid AND p.status = 'active'
+        AND EXISTS (SELECT 1 FROM product_variants v WHERE v."productId" = p.id AND v.status = 'active' AND v."costPrice" = 0)
       GROUP BY p.id
       ORDER BY "unitsSold" DESC, p.name ASC
       LIMIT ${MISSING_COST_LIMIT}`;

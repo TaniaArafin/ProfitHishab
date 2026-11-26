@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
+import { BUSINESS_TYPES } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
 import { navigateFresh } from '@/lib/navigation';
 import { SelectField } from '@/components/SelectField';
@@ -11,8 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PhoneVerification } from './PhoneVerification';
-
-const BUSINESS_TYPES = ['Clothing & fashion', 'Cosmetics & beauty', 'Electronics & gadgets', 'Food & grocery', 'Home & lifestyle', 'Other'];
 
 /**
  * From GET /auth/signup-options. `otpRequired` (OTP_REQUIRED): confirm the phone by SMS. `emailRequired`: no SMS

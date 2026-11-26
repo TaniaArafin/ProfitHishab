@@ -75,6 +75,8 @@ model Business {
   members              BusinessMember[]
   categories           Category[]
   products             Product[]
+  productVariants      ProductVariant[]
+  optionLists          OptionList[]
   customers            Customer[]
   couriers             Courier[]
   orders               Order[]
@@ -117,43 +119,98 @@ model Category {
 }
 
 model Product {
-  id           String         @id @default(uuid(7)) @db.Uuid
-  businessId   String         @db.Uuid
-  categoryId   String?        @db.Uuid
+  id           String           @id @default(uuid(7)) @db.Uuid
+  businessId   String           @db.Uuid
+  categoryId   String?          @db.Uuid
   name         String
   sku          String
+  /// Summary of the variants, kept in sync by ProductsService: the first active variant's
+  /// SKU (plain product), price and cost; stock is the sum over active variants.
   sellingPrice Int
   costPrice    Int
-  stock        Int            @default(0)
-  status       String         @default("active")
-  importId     String?        @db.Uuid
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category     Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stock        Float            @default(0)
+  status       String           @default("active")
+  /// piece | kg | gram | litre | ml | metre | pack | box | strip | dozen | pair | set (CHECK).
+  unit         String           @default("piece")
+  brand        String?
+  description  String?
+  /// [{label, value}]
+  attributes   Json             @default("[]")
+  /// [{name, values[]}], at most 3; empty for a plain product.
+  options      Json             @default("[]")
+  importId     String?          @db.Uuid
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  business     Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category     Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   orderItems   OrderItem[]
   prices       ProductPrice[]
+  variants     ProductVariant[]
 
   @@unique([businessId, sku])
   @@map("products")
 }
 
+/// What is sold and counted. Every product has at least one; a plain product has one with
+/// no option values.
+model ProductVariant {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  businessId   String         @db.Uuid
+  productId    String         @db.Uuid
+  /// {"Size": "M", "Colour": "Red"}; {} for a plain product.
+  optionValues Json           @default("{}")
+  position     Int            @default(0)
+  sku          String
+  sellingPrice Int
+  costPrice    Int
+  stock        Float          @default(0)
+  status       String         @default("active")
+  importId     String?        @db.Uuid
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  product      Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItems   OrderItem[]
+  prices       ProductPrice[]
+
+  @@unique([businessId, sku])
+  @@index([productId])
+  @@map("product_variants")
+}
+
+/// A saved option list (Settings → Product options), copied onto a product's options.
+model OptionList {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  businessId String   @db.Uuid
+  name       String
+  values     Json     @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, name])
+  @@map("option_lists")
+}
+
 /// Price history: one row per day the selling price or cost changed. An order takes
 /// the row in effect on its orderDate, so later changes never rewrite past profit.
 model ProductPrice {
-  id            String   @id @default(uuid(7)) @db.Uuid
-  businessId    String   @db.Uuid
-  productId     String   @db.Uuid
+  id            String         @id @default(uuid(7)) @db.Uuid
+  businessId    String         @db.Uuid
+  productId     String         @db.Uuid
+  variantId     String         @db.Uuid
   sellingPrice  Int
   costPrice     Int
   /// First day (business timezone) this price applies; it lasts until the next row.
-  effectiveFrom DateTime @db.Date
-  createdById   String?  @db.Uuid
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  effectiveFrom DateTime       @db.Date
+  createdById   String?        @db.Uuid
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant       ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, effectiveFrom])
+  @@unique([variantId, effectiveFrom])
+  @@index([productId])
   @@map("product_prices")
 }
 
@@ -240,21 +297,26 @@ model Order {
 }
 
 model OrderItem {
-  id          String  @id @default(uuid(7)) @db.Uuid
-  orderId     String  @db.Uuid
-  businessId  String  @db.Uuid
-  productId   String  @db.Uuid
-  productName String
-  sku         String
-  quantity    Int
-  unitPrice   Int
-  unitCost    Int
-  lineTotal   Int
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product     Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  id           String         @id @default(uuid(7)) @db.Uuid
+  orderId      String         @db.Uuid
+  businessId   String         @db.Uuid
+  productId    String         @db.Uuid
+  variantId    String         @db.Uuid
+  productName  String
+  /// "M / Red" at the time of the order; null for a plain product.
+  variantLabel String?
+  sku          String
+  quantity     Float
+  unitPrice    Int
+  unitCost     Int
+  lineTotal    Int
+  order        Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
   @@index([businessId, productId])
+  @@index([variantId])
   @@map("order_items")
 }
 

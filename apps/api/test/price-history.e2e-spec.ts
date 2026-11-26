@@ -10,6 +10,7 @@ describe('Product price history (e2e)', () => {
   let prisma: PrismaService;
   let seller: Client;
   let productId: string;
+  let variantId: string;
   const today = todayIn('Asia/Dhaka');
 
   const order = async (orderDate?: string) => {
@@ -27,6 +28,7 @@ describe('Product price history (e2e)', () => {
     seller = await registerSeller(app, 'prices@example.com');
     const p = await seller.send('post', '/products', { name: 'Cotton Saree', sellingPrice: tk(450), costPrice: tk(300) });
     productId = p.body.data.id;
+    variantId = p.body.data.variants[0].id;
   });
 
   afterAll(async () => {
@@ -58,6 +60,7 @@ describe('Product price history (e2e)', () => {
         data: {
           businessId: (await prisma.product.findUniqueOrThrow({ where: { id: productId } })).businessId,
           productId,
+          variantId,
           sellingPrice: tk(450),
           costPrice: tk(300),
           effectiveFrom: new Date('2026-10-01T00:00:00Z'),
@@ -78,7 +81,7 @@ describe('Product price history (e2e)', () => {
       expect(history.map((h: { effectiveFrom: string }) => h.effectiveFrom)).toEqual([today, '2026-10-01']);
 
       const on = await seller.get(`/products/prices-on?ids=${productId}&date=2026-10-10`);
-      expect(on.body.data).toEqual([{ productId, sellingPrice: tk(450), costPrice: tk(300) }]);
+      expect(on.body.data).toEqual([{ variantId, productId, sellingPrice: tk(450), costPrice: tk(300) }]);
     });
 
     it('lets the seller override the price on a backdated order', async () => {

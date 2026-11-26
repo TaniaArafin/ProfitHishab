@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ProductsModule } from '../products/products.module';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
@@ -14,7 +15,7 @@ import { BusinessModule } from '../business/business.module';
 import { ExpensesModule } from '../expenses/expenses.module';
 
 @Module({
-  imports: [BusinessModule, ExpensesModule],
+  imports: [BusinessModule, ExpensesModule, ProductsModule],
   controllers: [AuthController],
   // For the admin module: session revocation, the admin flag and admin-made reset links.
   // For billing: the owner's email and the Mailer for payment receipts.

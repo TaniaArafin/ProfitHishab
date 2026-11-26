@@ -2,28 +2,44 @@
 
 import { Search } from 'lucide-react';
 import { useId, useState, type KeyboardEvent } from 'react';
-import { formatTaka, type ProductDto } from '@ph/shared';
+import { formatTaka, UNIT_LABELS, type ProductDto, type VariantDto } from '@ph/shared';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useProductSearch } from '@/lib/hooks';
 import { cn } from '@/lib/utils';
 
+type Choice = { product: ProductDto; variant: VariantDto };
+
+/** What can be sold: a plain product once, a product with options once per variant on sale. */
+function choicesOf(products: ProductDto[]): Choice[] {
+  return products.flatMap((product) => {
+    const onSale = product.variants.filter((v) => v.status === 'active');
+    if (product.options.length === 0) return onSale[0] ? [{ product, variant: onSale[0] }] : [];
+    return onSale.map((variant) => ({ product, variant }));
+  });
+}
+
+/** "Cotton Kurti — M / Red", or the name alone for a plain product. */
+export const choiceName = (product: ProductDto, variant: VariantDto) =>
+  variant.label ? `${product.name} — ${variant.label}` : product.name;
+
 /**
  * Search-as-you-type product picker following the WAI-ARIA combobox pattern:
- * arrow keys move through results, Enter picks, Escape closes.
+ * arrow keys move through results, Enter picks, Escape closes. Each variant is its own option.
  */
-export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto) => void; error?: string }) {
+export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto, variant: VariantDto) => void; error?: string }) {
   const id = useId();
   const listId = `${id}-list`;
   const [term, setTerm] = useState('');
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
-  const { results, searching } = useProductSearch(term);
+  const { results: products, searching } = useProductSearch(term);
+  const results = choicesOf(products);
   const showList = open && results.length > 0;
   const activeIndex = Math.min(active, Math.max(results.length - 1, 0));
 
-  function pick(product: ProductDto) {
-    onPick(product);
+  function pick({ product, variant }: Choice) {
+    onPick(product, variant);
     setTerm('');
     setActive(0);
     setOpen(false);
@@ -39,8 +55,8 @@ export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto)
       setActive((i) => (i - 1 + results.length) % results.length);
     } else if (e.key === 'Enter' && showList) {
       e.preventDefault(); // pick the product, do not submit the order
-      const product = results[activeIndex];
-      if (product) pick(product);
+      const choice = results[activeIndex];
+      if (choice) pick(choice);
     } else if (e.key === 'Escape') {
       setOpen(false);
     }
@@ -78,16 +94,16 @@ export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto)
         hidden={!showList}
         className="absolute z-10 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-line bg-card p-1 shadow-lift"
       >
-        {results.map((p, i) => (
+        {results.map((c, i) => (
           <li
-            key={p.id}
+            key={c.variant.id}
             id={`${id}-opt-${i}`}
             role="option"
             aria-selected={i === activeIndex}
             // mousedown, not click: it fires before the input's blur closes the list.
             onMouseDown={(e) => {
               e.preventDefault();
-              pick(p);
+              pick(c);
             }}
             onMouseEnter={() => setActive(i)}
             className={cn(
@@ -96,9 +112,15 @@ export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto)
             )}
           >
             <span className="min-w-0 truncate">
-              {p.name} <span className="text-ink-faint">{p.sku}</span>
+              {choiceName(c.product, c.variant)} <span className="text-ink-faint">{c.variant.sku}</span>
             </span>
-            <span className="shrink-0 tabular">{formatTaka(p.sellingPrice)}</span>
+            <span className="shrink-0 text-right tabular">
+              {formatTaka(c.variant.sellingPrice)}
+              {c.product.unit === 'piece' ? '' : ` / ${UNIT_LABELS[c.product.unit]}`}
+              <span className="block text-xs text-ink-faint">
+                {c.variant.stock} {c.product.unit === 'piece' ? 'in stock' : `${UNIT_LABELS[c.product.unit]} in stock`}
+              </span>
+            </span>
           </li>
         ))}
       </ul>

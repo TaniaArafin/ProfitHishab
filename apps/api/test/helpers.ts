@@ -74,7 +74,7 @@ export async function createTestApp(): Promise<{ app: INestApplication; prisma: 
   await app.init();
   const prisma = app.get(PrismaService);
   await prisma.$executeRawUnsafe(
-    'TRUNCATE phone_otps, trial_claims, users, businesses, sessions, business_members, categories, products, product_prices, customers, couriers, orders, order_items, order_status_history, expense_categories, expenses, imports, import_rows CASCADE',
+    'TRUNCATE phone_otps, trial_claims, users, businesses, sessions, business_members, categories, products, product_variants, option_lists, product_prices, customers, couriers, orders, order_items, order_status_history, expense_categories, expenses, imports, import_rows CASCADE',
   );
   return { app, prisma };
 }

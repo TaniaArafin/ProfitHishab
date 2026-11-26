@@ -98,6 +98,8 @@ describe('expenseReportCsv', () => {
           profit: 300000,
           margin: 40,
           unitsReturned: 1,
+          unit: 'piece',
+          variants: [],
         },
       ],
       highlights: { mostProfitable: null, highestRevenue: null, lowestMargin: null },

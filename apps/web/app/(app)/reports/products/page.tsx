@@ -10,10 +10,11 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { periodFromParams, periodLabel } from '@/lib/period';
 import { apiGet, qs } from '@/lib/server-api';
+import { ProfitRows, unitsText } from './ProfitRows';
 
 export const metadata: Metadata = { title: 'Product profitability' };
 
@@ -116,26 +117,7 @@ export default async function ProductProfitPage({ searchParams }: Props) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {report.rows.map((r) => (
-                  <TableRow key={r.productId}>
-                    <TableCell className="max-w-[18rem]">
-                      <Link href={`/products/${r.productId}`} className="block truncate font-medium text-ink hover:underline">
-                        {r.name}
-                      </Link>
-                      <div className="text-xs text-ink-faint">{r.sku}</div>
-                    </TableCell>
-                    <TableCell className="text-right tabular">{r.unitsSold}</TableCell>
-                    <TableCell className="text-right tabular">{formatTaka(r.sales)}</TableCell>
-                    <TableCell className="hidden text-right tabular text-ink-muted lg:table-cell">{formatTaka(r.cost)}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      <Money value={r.profit} tone />
-                    </TableCell>
-                    <TableCell className={cn('text-right tabular', r.margin < 15 && 'text-loss')}>{r.margin}%</TableCell>
-                    <TableCell className={cn('text-right tabular', r.unitsReturned > 0 ? 'text-loss' : 'text-ink-faint')}>
-                      {r.unitsReturned}
-                    </TableCell>
-                  </TableRow>
-                ))}
+                <ProfitRows rows={report.rows} />
               </TableBody>
             </Table>
           </TableCard>
@@ -162,7 +144,7 @@ export default async function ProductProfitPage({ searchParams }: Props) {
                     <div>
                       <dt className="text-xs text-ink-faint">Units</dt>
                       <dd className="tabular">
-                        {r.unitsSold}
+                        {unitsText(r.unitsSold, r.unit)}
                         {r.unitsReturned > 0 ? <span className="text-loss"> · {r.unitsReturned} back</span> : null}
                       </dd>
                     </div>
@@ -171,6 +153,21 @@ export default async function ProductProfitPage({ searchParams }: Props) {
                       <dd className={cn('tabular', r.margin < 15 && 'text-loss')}>{r.margin}%</dd>
                     </div>
                   </dl>
+                  {r.variants.length > 0 ? (
+                    <details className="text-sm">
+                      <summary className="cursor-pointer text-ink-muted">{r.variants.length} variants</summary>
+                      <ul className="mt-2 flex flex-col gap-1">
+                        {r.variants.map((v) => (
+                          <li key={v.variantId} className="flex justify-between gap-3">
+                            <span className="min-w-0 truncate">
+                              {v.label} · {unitsText(v.unitsSold, r.unit)}
+                            </span>
+                            <Money value={v.profit} tone className="shrink-0" />
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : null}
                 </Card>
               </li>
             ))}

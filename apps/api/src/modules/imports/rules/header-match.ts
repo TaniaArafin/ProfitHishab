@@ -18,6 +18,10 @@ export const HEADER_SYNONYMS: Record<ImportTarget, string[]> = {
   courierCost: ['courier cost', 'courier charge'],
   paymentMethod: ['payment', 'payment method'],
   status: ['status', 'অবস্থা'],
+  size: ['size', 'সাইজ'],
+  colour: ['colour', 'color', 'রং', 'রঙ'],
+  variant: ['variant', 'variation', 'option'],
+  unit: ['unit', 'uom', 'একক'],
 };
 
 function squash(text: string): string {

@@ -11,7 +11,9 @@ import type {
   OrderStatus,
   PaymentMethod,
   ProductStatus,
+  VariantStatus,
 } from './enums';
+import type { Unit } from './products';
 import type { Period } from './dates';
 import type { ImportMapping } from './schemas';
 
@@ -94,10 +96,40 @@ export interface ProductDto {
   stock: number;
   status: ProductStatus;
   costMissing: boolean;
+  unit: Unit;
+  brand: string | null;
+  description: string | null;
+  attributes: Array<{ label: string; value: string }>;
+  options: Array<{ name: string; values: string[] }>;
+  /** Every product has at least one; a plain product has one with no option values and label "". */
+  variants: VariantDto[];
+}
+
+/** What is sold and counted: one combination of a product's option values. */
+export interface VariantDto {
+  id: string;
+  optionValues: Record<string, string>;
+  /** "M / Red"; "" for a plain product's only variant. */
+  label: string;
+  sku: string;
+  sellingPrice: number;
+  costPrice: number;
+  stock: number;
+  status: VariantStatus;
+}
+
+/** A saved option list (Settings → Product options). */
+export interface OptionListDto {
+  id: string;
+  name: string;
+  values: string[];
 }
 
 /** One row of a product's price history: the price from `effectiveFrom` until the next row. */
 export interface ProductPriceDto {
+  variantId: string;
+  /** "" for a plain product. */
+  variantLabel: string;
   sellingPrice: number;
   costPrice: number;
   effectiveFrom: string;
@@ -106,6 +138,7 @@ export interface ProductPriceDto {
 
 /** A product's price and cost on a given day (GET /products/prices-on). */
 export interface ProductPriceOnDto {
+  variantId: string;
   productId: string;
   sellingPrice: number;
   costPrice: number;
@@ -144,7 +177,11 @@ export interface OrderListItemDto {
 export interface OrderItemDto {
   id: string;
   productId: string;
+  variantId: string;
   productName: string;
+  /** "M / Red"; null for a plain product. */
+  variantLabel: string | null;
+  unit: Unit;
   sku: string;
   quantity: number;
   unitPrice: number;
@@ -242,6 +279,19 @@ export interface ProductProfitDto {
   profit: number;
   margin: number;
   unitsReturned: number;
+  unit: Unit;
+  /** Per-variant breakdown; empty for a plain product. */
+  variants: VariantProfitDto[];
+}
+
+export interface VariantProfitDto {
+  variantId: string;
+  label: string;
+  unitsSold: number;
+  sales: number;
+  cost: number;
+  profit: number;
+  margin: number;
 }
 
 export interface ProductProfitReportDto {

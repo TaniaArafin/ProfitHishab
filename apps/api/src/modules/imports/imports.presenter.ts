@@ -8,7 +8,7 @@ import {
   type ImportRowReason,
 } from '@ph/shared';
 import type { ImportRecord, ImportRowRecord } from './imports.repository';
-import { rowProblems } from './rules/row-parse';
+import { rowProblems, WHOLE_QUANTITY_HINT } from './rules/row-parse';
 
 /** What the service works out for one import beyond its own columns. */
 export interface ImportDetail {
@@ -79,8 +79,10 @@ export function toImportRowDto(row: ImportRowRecord, mapping: ImportMapping | nu
   const raw = toRawCells(row.raw);
   const verdict = verdictOf(row.errors);
   let problems: ImportRowDto['problems'] = {};
-  if (row.status === 'invalid' && mapping) problems = rowProblems(raw, mapping);
-  else if (verdict.reasons.includes('duplicate_ref')) problems = { externalRef: DUPLICATE_REF_HINT };
+  if (row.status === 'invalid' && mapping) {
+    problems = rowProblems(raw, mapping);
+    if (verdict.reasons.includes('quantity_not_whole')) problems.quantity = WHOLE_QUANTITY_HINT;
+  } else if (verdict.reasons.includes('duplicate_ref')) problems = { externalRef: DUPLICATE_REF_HINT };
   return { rowNumber: row.rowNumber, status: row.status, ...verdict, raw, problems };
 }
 

@@ -27,13 +27,19 @@ const productListQuery = listQuerySchema.extend({
     .transform((v) => v === 'true'),
 });
 
-const pricesOnQuery = z.object({
-  ids: z
-    .string()
-    .transform((v) => v.split(',').filter(Boolean))
-    .pipe(z.array(z.string().uuid()).min(1).max(100)),
-  date: z.string().refine(isIsoDate, 'Use a date like 2026-09-30'),
-});
+const idList = z
+  .string()
+  .transform((v) => v.split(',').filter(Boolean))
+  .pipe(z.array(z.string().uuid()).max(100));
+
+/** `variantIds`, or the older `ids` (product ids, each standing for its first variant). */
+const pricesOnQuery = z
+  .object({
+    variantIds: idList.default(''),
+    ids: idList.default(''),
+    date: z.string().refine(isIsoDate, 'Use a date like 2026-09-30'),
+  })
+  .refine((q) => q.variantIds.length + q.ids.length > 0, { message: 'Name at least one variant', path: ['variantIds'] });
 
 @Controller()
 export class ProductsController {
@@ -52,7 +58,7 @@ export class ProductsController {
   /** The order form prices a backdated order with these. Declared before products/:id. */
   @Get('products/prices-on')
   async pricesOn(@Auth() auth: AuthContext, @Query(zod(pricesOnQuery)) query: z.infer<typeof pricesOnQuery>) {
-    return { data: await this.products.pricesOn(auth.businessId, query.ids, query.date) };
+    return { data: await this.products.pricesOn(auth.businessId, { variantIds: query.variantIds, productIds: query.ids }, query.date) };
   }
 
   @Get('products/missing-cost')

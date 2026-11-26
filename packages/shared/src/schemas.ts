@@ -13,8 +13,20 @@ import {
   ORDER_STATUSES,
   PAYMENT_METHODS,
   PRODUCT_STATUSES,
+  VARIANT_STATUSES,
 } from './enums';
 import { isIsoDate } from './dates';
+import {
+  MAX_OPTIONS,
+  MAX_OPTION_VALUES,
+  MAX_VARIANTS,
+  UNITS,
+  UNIT_LABELS,
+  allowsDecimal,
+  hasAtMostDecimals,
+  optionValuesKey,
+  type Unit,
+} from './products';
 import { normalizePhone, toAsciiDigits } from './phone';
 
 /** Integer poisha, never negative. */
@@ -137,24 +149,181 @@ export type CourierInput = z.infer<typeof courierSchema>;
 
 export const categorySchema = z.object({ name: z.string().trim().min(1, 'Enter a name').max(80) });
 
-export const productSchema = z.object({
-  name: z.string().trim().min(1, 'Enter a product name').max(200),
-  sku: z
-    .string()
-    .trim()
-    .max(60)
-    .optional()
-    .nullable()
-    .transform((v) => (v ? v.toUpperCase() : null)),
-  categoryId: uuid.nullable().optional(),
+const productSku = z
+  .string()
+  .trim()
+  .max(60)
+  .optional()
+  .nullable()
+  .transform((v) => (v ? v.toUpperCase() : null));
+
+/** Stock or a quantity: up to 3 decimals; whole numbers are enforced per unit. */
+const quantityLike = z
+  .number({ invalid_type_error: 'Enter a number' })
+  .min(-1e9)
+  .max(1e9)
+  .refine((v) => hasAtMostDecimals(v), 'Use at most 3 decimals');
+
+const optionText = z.string().trim().min(1, 'Enter a value').max(40, 'Use at most 40 characters');
+
+export const productOptionSchema = z.object({
+  name: optionText,
+  values: z.array(optionText).min(1, 'Add at least one value').max(MAX_OPTION_VALUES, `Use at most ${MAX_OPTION_VALUES} values`),
+});
+export type ProductOptionInput = z.infer<typeof productOptionSchema>;
+
+export const productAttributeSchema = z.object({
+  label: z.string().trim().min(1, 'Enter a label').max(60),
+  value: z.string().trim().min(1, 'Enter a value').max(200),
+});
+
+export const variantInputSchema = z.object({
+  id: uuid.optional(),
+  optionValues: z.record(optionText).default({}),
+  sku: productSku,
   sellingPrice: money,
   costPrice: money,
-  stock: z.number().int().default(0),
-  status: z.enum(PRODUCT_STATUSES).default('active'),
+  stock: quantityLike.default(0),
+  status: z.enum(VARIANT_STATUSES).default('active'),
 });
+export type VariantInput = z.infer<typeof variantInputSchema>;
+
+const productFields = {
+  name: z.string().trim().min(1, 'Enter a product name').max(200),
+  sku: productSku,
+  categoryId: uuid.nullable().optional(),
+  unit: z.enum(UNITS),
+  brand: optionalText(100),
+  description: optionalText(1000),
+  attributes: z.array(productAttributeSchema).max(20, 'Use at most 20 details'),
+  options: z.array(productOptionSchema).max(MAX_OPTIONS, `Use at most ${MAX_OPTIONS} options`),
+  variants: z.array(variantInputSchema).min(1, 'Add at least one variant').max(MAX_VARIANTS, `Use at most ${MAX_VARIANTS} variants`),
+  /** Legacy single-variant fields: still accepted, turned into one hidden variant. */
+  sellingPrice: money,
+  costPrice: money,
+  stock: quantityLike,
+  status: z.enum(PRODUCT_STATUSES),
+};
+
+type VariantShape = { optionValues: Record<string, string>; stock?: number };
+type ProductShape = {
+  unit?: Unit;
+  options?: Array<{ name: string; values: string[] }>;
+  variants?: VariantShape[];
+  stock?: number;
+};
+
+function checkOptions(options: ProductShape['options'], ctx: z.RefinementCtx) {
+  const names = new Set<string>();
+  options?.forEach((o, i) => {
+    const name = o.name.toLowerCase();
+    if (names.has(name)) ctx.addIssue({ code: 'custom', path: ['options', i, 'name'], message: 'This option is already added' });
+    names.add(name);
+    const values = new Set<string>();
+    for (const v of o.values) {
+      if (values.has(v.toLowerCase())) {
+        ctx.addIssue({ code: 'custom', path: ['options', i, 'values'], message: `“${v}” is listed twice` });
+        break;
+      }
+      values.add(v.toLowerCase());
+    }
+  });
+}
+
+/** Every variant names exactly one value of every option, and no two variants are the same. */
+function checkVariants(options: NonNullable<ProductShape['options']>, variants: VariantShape[], ctx: z.RefinementCtx) {
+  if (options.length === 0 && (variants.length !== 1 || Object.keys(variants[0]?.optionValues ?? {}).length > 0)) {
+    ctx.addIssue({ code: 'custom', path: ['variants'], message: 'A product without options has exactly one variant' });
+    return;
+  }
+  const seen = new Set<string>();
+  variants.forEach((v, i) => {
+    const keys = Object.keys(v.optionValues);
+    const valid =
+      keys.length === options.length &&
+      options.every((o) => o.values.some((value) => value.toLowerCase() === v.optionValues[o.name]?.toLowerCase()));
+    if (!valid) {
+      ctx.addIssue({ code: 'custom', path: ['variants', i, 'optionValues'], message: 'Pick one value of every option' });
+      return;
+    }
+    const key = optionValuesKey(v.optionValues);
+    if (seen.has(key)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'optionValues'], message: 'This variant is listed twice' });
+    seen.add(key);
+  });
+}
+
+function checkWholeStock(p: ProductShape, ctx: z.RefinementCtx) {
+  if (!p.unit || allowsDecimal(p.unit)) return;
+  const message = `Stock must be a whole number for ${UNIT_LABELS[p.unit]}`;
+  if (p.stock !== undefined && !Number.isInteger(p.stock)) ctx.addIssue({ code: 'custom', path: ['stock'], message });
+  p.variants?.forEach((v, i) => {
+    if (v.stock !== undefined && !Number.isInteger(v.stock)) ctx.addIssue({ code: 'custom', path: ['variants', i, 'stock'], message });
+  });
+}
+
+export const productSchema = z
+  .object({
+    ...productFields,
+    unit: productFields.unit.default('piece'),
+    attributes: productFields.attributes.default([]),
+    options: productFields.options.default([]),
+    variants: productFields.variants.optional(),
+    sellingPrice: money.optional(),
+    costPrice: money.optional(),
+    stock: quantityLike.optional(),
+    status: productFields.status.default('active'),
+  })
+  .superRefine((p, ctx) => {
+    checkOptions(p.options, ctx);
+    checkWholeStock(p, ctx);
+    if (p.variants) return checkVariants(p.options, p.variants, ctx);
+    if (p.options.length > 0) {
+      ctx.addIssue({ code: 'custom', path: ['variants'], message: 'Add at least one variant' });
+      return;
+    }
+    if (p.sellingPrice === undefined) ctx.addIssue({ code: 'custom', path: ['sellingPrice'], message: 'Enter an amount' });
+    if (p.costPrice === undefined) ctx.addIssue({ code: 'custom', path: ['costPrice'], message: 'Enter an amount' });
+  })
+  .transform(({ sellingPrice, costPrice, stock, variants, ...rest }) => ({
+    ...rest,
+    variants: variants ?? [
+      {
+        optionValues: {},
+        sku: null,
+        sellingPrice: sellingPrice ?? 0,
+        costPrice: costPrice ?? 0,
+        stock: stock ?? 0,
+        status: 'active' as const,
+      },
+    ],
+  }));
 export type ProductInput = z.infer<typeof productSchema>;
-export const productUpdateSchema = productSchema.partial();
+
+/**
+ * Every field optional. Options and variants are checked against each other when both are sent;
+ * the service checks variants alone against the product's stored options, and stock against its unit.
+ */
+export const productUpdateSchema = z
+  .object(productFields)
+  .partial()
+  .superRefine((p, ctx) => {
+    checkOptions(p.options, ctx);
+    checkWholeStock(p, ctx);
+    if (p.options && p.variants) checkVariants(p.options, p.variants, ctx);
+  });
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
+
+/** Values trimmed, blanks dropped, repeats (any case) removed, first spelling kept. */
+const uniqueValues = z
+  .array(optionText)
+  .max(MAX_OPTION_VALUES, `Use at most ${MAX_OPTION_VALUES} values`)
+  .transform((values) => values.filter((v, i) => values.findIndex((w) => w.toLowerCase() === v.toLowerCase()) === i));
+
+/** A saved option list (Settings → Product options). */
+export const optionListSchema = z.object({ name: optionText, values: uniqueValues.default([]) });
+export type OptionListInput = z.infer<typeof optionListSchema>;
+export const optionListUpdateSchema = z.object({ name: optionText.optional(), values: uniqueValues.optional() });
+export type OptionListUpdateInput = z.infer<typeof optionListUpdateSchema>;
 
 export const bulkCostSchema = z.object({
   items: z
@@ -178,12 +347,26 @@ export const customerUpdateSchema = customerSchema.partial();
 
 // ── Orders ─────────────────────────────────────────────────────────────
 
-export const orderItemSchema = z.object({
-  productId: uuid,
-  quantity: z.number().int().min(1, 'Quantity must be at least 1'),
-  /** Defaults to the product's selling price. */
-  unitPrice: money.optional(),
-});
+export const orderItemSchema = z
+  .object({
+    /** The variant sold. */
+    variantId: uuid.optional(),
+    /** Legacy: a product with one variant; a product with several needs `variantId`. */
+    productId: uuid.optional(),
+    quantity: z
+      .number({ invalid_type_error: 'Enter a quantity' })
+      .positive('Quantity must be more than 0')
+      .max(1e6)
+      .refine((v) => hasAtMostDecimals(v), 'Use at most 3 decimals'),
+    /** Defaults to the variant's selling price. */
+    unitPrice: money.optional(),
+  })
+  .superRefine((item, ctx) => {
+    if (!item.variantId === !item.productId) {
+      ctx.addIssue({ code: 'custom', path: ['variantId'], message: 'Pick a product' });
+    }
+  });
+export type OrderItemInput = z.infer<typeof orderItemSchema>;
 
 export const orderCreateSchema = z.object({
   customer: z.object({

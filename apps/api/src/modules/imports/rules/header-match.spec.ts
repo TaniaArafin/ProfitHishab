@@ -38,6 +38,17 @@ describe('suggestColumns', () => {
     expect(suggestColumns(['Product Code'])).toEqual({ sku: 'Product Code' });
   });
 
+  it('maps Size, Colour, Variant and Unit', () => {
+    expect(suggestColumns(['Size', 'Color', 'Variant', 'Unit', 'Unit price'])).toEqual({
+      size: 'Size',
+      colour: 'Color',
+      variant: 'Variant',
+      unit: 'Unit',
+      sellingPrice: 'Unit price',
+    });
+    expect(suggestColumns(['সাইজ', 'রং', 'একক'])).toEqual({ size: 'সাইজ', colour: 'রং', unit: 'একক' });
+  });
+
   it('leaves unknown headers out', () => {
     expect(suggestColumns(['Notes', 'Mobile'])).toEqual({ phone: 'Mobile' });
   });

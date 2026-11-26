@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { apiGet, qs } from '@/lib/server-api';
+import { priceText, stockText, variantsText } from './display';
 
 export const metadata: Metadata = { title: 'Products' };
 
@@ -158,15 +159,20 @@ export default async function ProductsPage({ searchParams }: Props) {
                       <Link href={`/products/${p.id}`} className="block truncate font-medium text-ink hover:underline">
                         {p.name}
                       </Link>
-                      <div className="text-xs text-ink-faint">{p.sku}</div>
+                      <div className="text-xs text-ink-faint">
+                        {p.sku}
+                        {variantsText(p) ? ` · ${variantsText(p)}` : ''}
+                      </div>
                     </TableCell>
                     <TableCell className="hidden text-ink-muted lg:table-cell">{p.categoryName ?? '—'}</TableCell>
-                    <TableCell className="text-right tabular">{formatTaka(p.sellingPrice)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-right tabular">{priceText(p)}</TableCell>
                     <TableCell className="text-right tabular">{p.costMissing ? <CostMissingBadge /> : formatTaka(p.costPrice)}</TableCell>
                     <TableCell className={cn('text-right tabular', p.margin < 15 && 'text-loss')}>
                       {p.costMissing ? '—' : `${p.margin}%`}
                     </TableCell>
-                    <TableCell className={cn('text-right tabular', p.stock < 0 && 'font-semibold text-loss')}>{p.stock}</TableCell>
+                    <TableCell className={cn('whitespace-nowrap text-right tabular', p.stock < 0 && 'font-semibold text-loss')}>
+                      {stockText(p)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <Button asChild variant="secondary" size="sm">
                         <Link href={`/products/${p.id}`} aria-label={`Edit ${p.name}`}>
@@ -193,10 +199,11 @@ export default async function ProductsPage({ searchParams }: Props) {
                       </Link>
                       <div className="truncate text-xs text-ink-faint">
                         {p.sku}
+                        {variantsText(p) ? ` · ${variantsText(p)}` : ''}
                         {p.categoryName ? ` · ${p.categoryName}` : ''}
                       </div>
                     </div>
-                    <span className="shrink-0 font-semibold tabular">{formatTaka(p.sellingPrice)}</span>
+                    <span className="shrink-0 font-semibold tabular">{priceText(p)}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-muted">
                     <span>
@@ -208,7 +215,7 @@ export default async function ProductsPage({ searchParams }: Props) {
                       </span>
                     )}
                     <span>
-                      Stock <span className={cn('tabular', p.stock < 0 ? 'font-semibold text-loss' : 'text-ink')}>{p.stock}</span>
+                      Stock <span className={cn('tabular', p.stock < 0 ? 'font-semibold text-loss' : 'text-ink')}>{stockText(p)}</span>
                     </span>
                   </div>
                 </Card>

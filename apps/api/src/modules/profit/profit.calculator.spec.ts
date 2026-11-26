@@ -7,6 +7,7 @@ import {
   EMPTY_ORDER_AGGREGATES,
   productHighlights,
   productProfitRows,
+  type DeliveredItemRow,
   type OrderAggregates,
 } from './profit.calculator';
 
@@ -89,6 +90,9 @@ describe('productProfitRows', () => {
           productId: 'saree',
           name: 'Saree',
           sku: 'S',
+          variantId: 'saree-v',
+          variantLabel: null,
+          unit: 'piece',
           quantity: 1,
           lineTotal: tk(2500),
           unitCost: tk(1350),
@@ -99,11 +103,26 @@ describe('productProfitRows', () => {
           productId: 'bag',
           name: 'Bag',
           sku: 'B',
+          variantId: 'bag-v',
+          variantLabel: null,
+          unit: 'piece',
           quantity: 1,
           lineTotal: tk(500),
           unitCost: tk(200),
         },
-        { orderId: 'o2', orderDiscount: 0, productId: 'bag', name: 'Bag', sku: 'B', quantity: 2, lineTotal: tk(1000), unitCost: tk(200) },
+        {
+          orderId: 'o2',
+          orderDiscount: 0,
+          productId: 'bag',
+          name: 'Bag',
+          sku: 'B',
+          variantId: 'bag-v',
+          variantLabel: null,
+          unit: 'piece',
+          quantity: 2,
+          lineTotal: tk(1000),
+          unitCost: tk(200),
+        },
       ],
       new Map([['bag', 1]]),
     );
@@ -117,6 +136,49 @@ describe('productProfitRows', () => {
     const h = productHighlights(rows);
     expect(h.mostProfitable?.productId).toBe('saree');
     expect(h.lowestMargin).toBeNull();
+  });
+});
+
+describe('productProfitRows with variants', () => {
+  const line = (o: Partial<DeliveredItemRow>): DeliveredItemRow => ({
+    orderId: 'o1',
+    orderDiscount: 0,
+    productId: 'kurti',
+    variantId: 'm-red',
+    variantLabel: 'M / Red',
+    name: 'Cotton Kurti',
+    sku: 'KUR',
+    unit: 'piece',
+    quantity: 2,
+    lineTotal: tk(2500),
+    unitCost: tk(700),
+    ...o,
+  });
+
+  it('breaks one product into its variants (spec 5.1)', () => {
+    const [kurti] = productProfitRows(
+      [line({}), line({ variantId: 'xl-red', variantLabel: 'XL / Red', quantity: 1, lineTotal: tk(1350), unitCost: tk(760) })],
+      new Map(),
+    );
+    expect(kurti).toMatchObject({ unitsSold: 3, sales: tk(3850), cost: tk(2160), profit: tk(1690), unit: 'piece' });
+    expect(kurti.variants).toEqual([
+      { variantId: 'm-red', label: 'M / Red', unitsSold: 2, sales: tk(2500), cost: tk(1400), profit: tk(1100), margin: 44 },
+      { variantId: 'xl-red', label: 'XL / Red', unitsSold: 1, sales: tk(1350), cost: tk(760), profit: tk(590), margin: 43.7 },
+    ]);
+  });
+
+  it('a plain product has no variant breakdown', () => {
+    const [box] = productProfitRows([line({ variantLabel: null, productId: 'box', variantId: 'box-v' })], new Map());
+    expect(box.variants).toEqual([]);
+  });
+
+  it('rounds a decimal line cost to whole poisha', () => {
+    const [rice] = productProfitRows(
+      [line({ variantLabel: null, unit: 'kg', quantity: 0.333, lineTotal: 2590, unitCost: 6000 })],
+      new Map(),
+    );
+    expect(rice.cost).toBe(1998);
+    expect(rice.unitsSold).toBe(0.333);
   });
 });
 

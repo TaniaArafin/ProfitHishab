@@ -1,30 +1,23 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProductDto } from '@ph/shared';
+import { kurti, plainProduct } from '@/test/products';
 import { ProductPicker } from './ProductPicker';
 
-const product = (id: string, name: string): ProductDto => ({
-  id,
-  name,
-  sku: id.toUpperCase(),
-  categoryId: null,
-  categoryName: null,
-  sellingPrice: 250000,
-  costPrice: 135000,
-  grossProfit: 115000,
-  margin: 46,
-  stock: 10,
-  status: 'active',
-  costMissing: false,
-});
+const product = (id: string, name: string): ProductDto => plainProduct({ id, name });
 
 const results = [product('p1', 'Cotton Saree'), product('p2', 'Silk Saree')];
+let found = results;
 
 vi.mock('@/lib/hooks', () => ({
-  useProductSearch: (term: string) => ({ results: term.trim() ? results : [], searching: false }),
+  useProductSearch: (term: string) => ({ results: term.trim() ? found : [], searching: false }),
 }));
 
 describe('ProductPicker (WAI-ARIA combobox)', () => {
+  beforeEach(() => {
+    found = results;
+  });
+
   it('moves with the arrow keys and picks with Enter, without submitting the form', () => {
     const onPick = vi.fn();
     const onSubmit = vi.fn((e: Event) => e.preventDefault());
@@ -43,7 +36,7 @@ describe('ProductPicker (WAI-ARIA combobox)', () => {
     expect(screen.getByRole('option', { name: /Silk Saree/ })).toHaveAttribute('aria-selected', 'true');
 
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onPick).toHaveBeenCalledWith(results[1]);
+    expect(onPick).toHaveBeenCalledWith(results[1], results[1].variants[0]);
     expect(onSubmit).not.toHaveBeenCalled();
     expect(input).toHaveValue('');
   });
@@ -61,6 +54,19 @@ describe('ProductPicker (WAI-ARIA combobox)', () => {
     render(<ProductPicker onPick={onPick} />);
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'saree' } });
     fireEvent.mouseDown(screen.getByRole('option', { name: /Cotton Saree/ }));
-    expect(onPick).toHaveBeenCalledWith(results[0]);
+    expect(onPick).toHaveBeenCalledWith(results[0], results[0].variants[0]);
+  });
+
+  it('lists each variant of a product with options, and picks that variant', () => {
+    found = [kurti];
+    const onPick = vi.fn();
+    render(<ProductPicker onPick={onPick} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'kurti' } });
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Cotton Kurti — M / Red'),
+      expect.stringContaining('Cotton Kurti — XL / Red'),
+    ]);
+    fireEvent.mouseDown(screen.getByRole('option', { name: /XL \/ Red/ }));
+    expect(onPick).toHaveBeenCalledWith(kurti, kurti.variants[1]);
   });
 });

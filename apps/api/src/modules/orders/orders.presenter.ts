@@ -1,4 +1,11 @@
-import { allowedTransitions, type OrderDetailDto, type OrderListItemDto, type OrderStatus, type PaymentMethod } from '@ph/shared';
+import {
+  allowedTransitions,
+  type OrderDetailDto,
+  type OrderListItemDto,
+  type OrderStatus,
+  type PaymentMethod,
+  type Unit,
+} from '@ph/shared';
 import { fromDbDate } from '../../common/dates';
 import type { OrderDetailRow, OrderListRow } from './orders.repository';
 
@@ -48,7 +55,10 @@ export function toOrderDetail(o: OrderDetailRow): OrderDetailDto {
     items: o.items.map((i) => ({
       id: i.id,
       productId: i.productId,
+      variantId: i.variantId,
       productName: i.productName,
+      variantLabel: i.variantLabel,
+      unit: i.product.unit as Unit,
       sku: i.sku,
       quantity: i.quantity,
       unitPrice: i.unitPrice,

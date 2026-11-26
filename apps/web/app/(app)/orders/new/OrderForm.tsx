@@ -15,6 +15,7 @@ import {
   type OrderDetailDto,
   type PaymentMethod,
   type ProductDto,
+  type VariantDto,
   type ProductPriceOnDto,
 } from '@ph/shared';
 import { api, fieldError, type ApiError } from '@/lib/client-api';
@@ -26,7 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCustomerLookup } from '@/lib/hooks';
 import { CustomerFields } from './CustomerFields';
-import { LineItems, type Line } from './LineItems';
+import { LineItems, quantityOf, quantityProblem, type Line } from './LineItems';
 import { OrderSummary } from './OrderSummary';
 
 type CreatableStatus = (typeof CREATABLE_ORDER_STATUSES)[number];
@@ -85,7 +86,7 @@ export function OrderForm({
 
   // Derived during render from the same shared formula the API stores.
   const totals = orderTotals(
-    lines.map((l) => ({ quantity: l.quantity, unitPrice: poishaOrZero(l.unitPrice), unitCost: l.unitCost })),
+    lines.map((l) => ({ quantity: quantityProblem(l) ? 0 : quantityOf(l), unitPrice: poishaOrZero(l.unitPrice), unitCost: l.unitCost })),
     {
       discount: poishaOrZero(discount),
       deliveryCharge: poishaOrZero(deliveryCharge),
@@ -97,15 +98,15 @@ export function OrderForm({
   // A backdated order is priced as of its date (the API does the same when it saves). Only the
   // latest lookup may apply: picking another date while one is in flight makes it stale.
   const pricing = useRef(0);
-  async function priceLinesOn(date: string, productIds: string[]) {
+  async function priceLinesOn(date: string, variantIds: string[]) {
     const request = ++pricing.current;
-    if (productIds.length === 0) return;
-    const res = await api<ProductPriceOnDto[]>('GET', `/products/prices-on?ids=${productIds.join(',')}&date=${date}`);
+    if (variantIds.length === 0) return;
+    const res = await api<ProductPriceOnDto[]>('GET', `/products/prices-on?variantIds=${variantIds.join(',')}&date=${date}`);
     if (!res.ok || request !== pricing.current) return;
-    const byId = new Map(res.data.map((p) => [p.productId, p]));
+    const byId = new Map(res.data.map((p) => [p.variantId, p]));
     setLines((prev) =>
       prev.map((l) => {
-        const dated = byId.get(l.product.id);
+        const dated = byId.get(l.variant.id);
         if (!dated) return l;
         return { ...l, unitCost: dated.costPrice, unitPrice: l.priceEdited ? l.unitPrice : takaText(dated.sellingPrice) };
       }),
@@ -114,20 +115,21 @@ export function OrderForm({
 
   function changeOrderDate(date: string) {
     setOrderDate(date);
-    if (date) void priceLinesOn(date, [...new Set(lines.map((l) => l.product.id))]);
+    if (date) void priceLinesOn(date, [...new Set(lines.map((l) => l.variant.id))]);
   }
 
-  function addProduct(product: ProductDto) {
-    const line = {
+  function addProduct(product: ProductDto, variant: VariantDto) {
+    const line: Line = {
       key: crypto.randomUUID(),
       product,
-      quantity: 1,
-      unitPrice: takaText(product.sellingPrice),
-      unitCost: product.costPrice,
+      variant,
+      quantity: '1',
+      unitPrice: takaText(variant.sellingPrice),
+      unitCost: variant.costPrice,
       priceEdited: false,
     };
     setLines((prev) => [...prev, line]);
-    if (orderDate !== today) void priceLinesOn(orderDate, [...new Set([...lines.map((l) => l.product.id), product.id])]);
+    if (orderDate !== today) void priceLinesOn(orderDate, [...new Set([...lines.map((l) => l.variant.id), variant.id])]);
   }
 
   function resetForNextOrder() {
@@ -148,6 +150,7 @@ export function OrderForm({
     // Which button submitted the form, read from the event rather than tracked in a ref.
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const addAnother = submitter?.value === 'another';
+    if (lines.some(quantityProblem)) return; // shown under each quantity
     setPending(true);
     setSaved(null);
     const res = await api<OrderDetailDto>(
@@ -157,8 +160,8 @@ export function OrderForm({
         customer: { phone, name: name || undefined, address: address || undefined },
         // A price the seller didn't touch is left to the API, which prices it as of the order date.
         items: lines.map((l) => ({
-          productId: l.product.id,
-          quantity: l.quantity,
+          variantId: l.variant.id,
+          quantity: quantityOf(l),
           ...(l.priceEdited ? { unitPrice: poishaOrZero(l.unitPrice) } : {}),
         })),
         discount: poishaOrZero(discount),

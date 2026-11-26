@@ -4,8 +4,17 @@ import { Card, CardContent } from '@/components/ui/card';
 import { formatDay } from '@/lib/period';
 import { cn } from '@/lib/utils';
 
-/** A product's price history, newest first: each row lasts until the one above it. */
+/**
+ * A product's price history, newest first: each row lasts until the next newer row of the same
+ * variant. A product with variants names the variant on each row.
+ */
 export function PriceHistory({ prices }: { prices: ProductPriceDto[] }) {
+  const latest = new Set<string>();
+  const current = prices.map((p) => {
+    const first = !latest.has(p.variantId);
+    latest.add(p.variantId);
+    return first;
+  });
   return (
     <section aria-labelledby="price-history-title">
       <Card>
@@ -18,16 +27,22 @@ export function PriceHistory({ prices }: { prices: ProductPriceDto[] }) {
           </div>
           <ol className="flex flex-col">
             {prices.map((p, i) => (
-              <li key={p.effectiveFrom} className="relative flex gap-3 pb-4 last:pb-0">
+              <li key={`${p.variantId}-${p.effectiveFrom}`} className="relative flex gap-3 pb-4 last:pb-0">
                 {i < prices.length - 1 ? <span className="absolute left-[5px] top-3 h-full w-px bg-line" aria-hidden /> : null}
                 <span
-                  className={cn('mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-card', i === 0 ? 'bg-brand' : 'bg-schist-300')}
+                  className={cn(
+                    'mt-1.5 h-[11px] w-[11px] shrink-0 rounded-full ring-2 ring-card',
+                    current[i] ? 'bg-brand' : 'bg-schist-300',
+                  )}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="font-semibold tabular">{formatTaka(p.sellingPrice)}</span>
+                    <span className="font-semibold tabular">
+                      {p.variantLabel ? <span className="mr-1.5 font-medium text-ink-muted">{p.variantLabel}</span> : null}
+                      {formatTaka(p.sellingPrice)}
+                    </span>
                     <span className="text-xs text-ink-faint">
-                      {i === 0 ? 'Current · ' : ''}from {formatDay(p.effectiveFrom)}
+                      {current[i] ? 'Current · ' : ''}from {formatDay(p.effectiveFrom)}
                     </span>
                   </div>
                   <div className="text-sm text-ink-muted tabular">

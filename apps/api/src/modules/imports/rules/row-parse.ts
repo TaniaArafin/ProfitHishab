@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
+  allowsDecimal,
+  hasAtMostDecimals,
+  optionValuesKey,
   IMPORT_ROW_WARNINGS,
   isIsoDate,
   normalizePhone,
@@ -9,6 +12,7 @@ import {
   type ImportTarget,
   type OrderStatus,
   type PaymentMethod,
+  type Unit,
 } from '@ph/shared';
 import { suggestStatus } from './status-match';
 
@@ -20,6 +24,10 @@ export interface NormalizedRow {
   externalRef: string | null;
   sku: string | null;
   productName: string;
+  /** {Size: "M", Colour: "Red", Variant: "…"} for the filled option cells; {} for a plain product. */
+  optionValues: Record<string, string>;
+  /** The row's own unit; null when the column is absent, empty or unknown. */
+  unit: Unit | null;
   quantity: number;
   unitPrice: number;
   unitCost: number | null;
@@ -41,6 +49,75 @@ export interface ParseContext {
   today: string;
   /** Courier name (lower case, trimmed) to courier id. */
   couriers: Map<string, string>;
+  /** The unit of an existing product the row names, if any. */
+  unitOf?: (ref: { sku: string | null; name: string }) => Unit | null;
+  /** The unit a new product gets (the business type's default, spec §6); piece when absent. */
+  defaultUnit?: Unit;
+}
+
+/** Option columns and the option name each fills on the product. */
+export const OPTION_TARGETS = [
+  ['size', 'Size'],
+  ['colour', 'Colour'],
+  ['variant', 'Variant'],
+] as const satisfies ReadonlyArray<readonly [ImportTarget, string]>;
+
+const UNIT_SPELLINGS: Record<string, Unit> = {
+  piece: 'piece',
+  pieces: 'piece',
+  pc: 'piece',
+  pcs: 'piece',
+  পিস: 'piece',
+  kg: 'kg',
+  kgs: 'kg',
+  kilo: 'kg',
+  kilogram: 'kg',
+  কেজি: 'kg',
+  g: 'gram',
+  gm: 'gram',
+  gms: 'gram',
+  gram: 'gram',
+  grams: 'gram',
+  গ্রাম: 'gram',
+  l: 'litre',
+  ltr: 'litre',
+  litre: 'litre',
+  liter: 'litre',
+  litres: 'litre',
+  liters: 'litre',
+  লিটার: 'litre',
+  ml: 'ml',
+  মিলি: 'ml',
+  m: 'metre',
+  metre: 'metre',
+  meter: 'metre',
+  metres: 'metre',
+  meters: 'metre',
+  মিটার: 'metre',
+  pack: 'pack',
+  packs: 'pack',
+  packet: 'pack',
+  প্যাকেট: 'pack',
+  box: 'box',
+  boxes: 'box',
+  বক্স: 'box',
+  strip: 'strip',
+  strips: 'strip',
+  পাতা: 'strip',
+  dozen: 'dozen',
+  ডজন: 'dozen',
+  pair: 'pair',
+  pairs: 'pair',
+  জোড়া: 'pair',
+  set: 'set',
+  sets: 'set',
+  সেট: 'set',
+};
+
+/** Unit cell ("KG", "pcs", "কেজি") to a unit; null when empty or unknown. */
+export function parseUnit(cell: string): Unit | null {
+  const v = cell.trim().toLowerCase().replace(/\.$/, '');
+  return Object.hasOwn(UNIT_SPELLINGS, v) ? UNIT_SPELLINGS[v] : null;
 }
 
 /** Money columns are INT. */
@@ -57,12 +134,12 @@ export function parseAmount(cell: string): number | null {
   return poisha <= MAX_POISHA ? poisha : null;
 }
 
-/** Whole number above zero; null otherwise. */
+/** A number above zero with at most 3 decimals (2, 2.5, 0.25); null otherwise. Whole-number units are checked per row. */
 export function parseQuantity(cell: string): number | null {
   const text = toAsciiDigits(cell).trim();
-  if (!/^\d+$/.test(text)) return null;
+  if (!/^\d+(\.\d+)?$/.test(text)) return null;
   const n = Number(text);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return n > 0 && n <= 1_000_000 && hasAtMostDecimals(n) ? n : null;
 }
 
 function validDate(y: number, m: number, d: number): string | null {
@@ -137,6 +214,15 @@ export function parseRow(raw: Record<string, string>, mapping: ImportMapping, ct
   const unitPrice = parseAmount(cell('sellingPrice'));
   if (unitPrice === null) reasons.push('price_invalid');
 
+  const sku = cell('sku') || null;
+  const unitCell = cell('unit');
+  const unit = parseUnit(unitCell);
+  if (unitCell !== '' && unit === null) warnings.push('unit_unknown' satisfies ImportRowWarning);
+  const soldBy = unit ?? ctx.unitOf?.({ sku, name: productName }) ?? ctx.defaultUnit ?? 'piece';
+  if (quantity !== null && !Number.isInteger(quantity) && !allowsDecimal(soldBy)) reasons.push('quantity_not_whole');
+  const optionValues: Record<string, string> = {};
+  for (const [target, name] of OPTION_TARGETS) if (cell(target)) optionValues[name] = cell(target);
+
   let orderDate = ctx.today;
   const dateCell = cell('orderDate');
   if (dateCell === '') {
@@ -165,7 +251,14 @@ export function parseRow(raw: Record<string, string>, mapping: ImportMapping, ct
   if (unitCost === null) warnings.push('cost_missing' satisfies ImportRowWarning);
 
   if (reasons.length > 0 || phone === null || quantity === null || unitPrice === null) {
-    const order: ImportRowReason[] = ['phone_invalid', 'product_missing', 'quantity_invalid', 'price_invalid', 'date_invalid'];
+    const order: ImportRowReason[] = [
+      'phone_invalid',
+      'product_missing',
+      'quantity_invalid',
+      'quantity_not_whole',
+      'price_invalid',
+      'date_invalid',
+    ];
     return { ok: false, reasons: order.filter((r) => reasons.includes(r)) };
   }
 
@@ -180,8 +273,10 @@ export function parseRow(raw: Record<string, string>, mapping: ImportMapping, ct
       address: cell('address') || null,
       orderDate,
       externalRef: cell('externalRef') || null,
-      sku: cell('sku') || null,
+      sku,
       productName,
+      optionValues,
+      unit,
       quantity,
       unitPrice,
       unitCost,
@@ -199,7 +294,7 @@ export function parseRow(raw: Record<string, string>, mapping: ImportMapping, ct
 const FIELD_HINTS = {
   phone: 'Enter a number like 017XXXXXXXX',
   product: 'Enter the product name',
-  quantity: 'Enter a whole number of 1 or more',
+  quantity: 'Enter a number above 0, like 2 or 2.5',
   amount: 'Enter an amount like 1250',
   date: 'Enter a date like 2026-10-31',
 } as const;
@@ -224,8 +319,18 @@ export function rowProblems(raw: Record<string, string>, mapping: ImportMapping)
   return problems;
 }
 
-/** Fingerprint of an order line, to spot a row already imported. */
+/**
+ * Fingerprint of an order line, to spot a row already imported. Option values are part of it, so M and
+ * L of one product on one day are different lines; a plain row hashes exactly as before variants existed.
+ */
 export function dedupeHash(row: NormalizedRow): string {
   const item = (row.sku || row.productName).trim().toLowerCase();
-  return createHash('sha256').update(`${row.phone}|${row.orderDate}|${item}|${row.quantity}|${row.unitPrice}`).digest('hex');
+  const options = optionValuesKey(row.optionValues ?? {});
+  const base = `${row.phone}|${row.orderDate}|${item}|${row.quantity}|${row.unitPrice}`;
+  return createHash('sha256')
+    .update(options ? `${base}|${options}` : base)
+    .digest('hex');
 }
+
+/** Hint for a whole-number unit; the preview puts it on the Qty cell. */
+export const WHOLE_QUANTITY_HINT = 'This product is sold whole; enter a whole number like 1 or 2';

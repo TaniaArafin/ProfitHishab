@@ -15,6 +15,8 @@ export type ExpenseKind = (typeof EXPENSE_KINDS)[number];
 
 export const PRODUCT_STATUSES = ['active', 'archived'] as const;
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+export const VARIANT_STATUSES = ['active', 'archived'] as const;
+export type VariantStatus = (typeof VARIANT_STATUSES)[number];
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   new: 'New',
@@ -109,6 +111,10 @@ export const IMPORT_TARGETS = [
   'courierCost',
   'paymentMethod',
   'status',
+  'size',
+  'colour',
+  'variant',
+  'unit',
 ] as const;
 export type ImportTarget = (typeof IMPORT_TARGETS)[number];
 
@@ -131,12 +137,17 @@ export const IMPORT_TARGET_LABELS: Record<ImportTarget, string> = {
   courierCost: 'Courier cost',
   paymentMethod: 'Payment method',
   status: 'Status',
+  size: 'Size',
+  colour: 'Colour',
+  variant: 'Variant',
+  unit: 'Unit',
 };
 
 export const IMPORT_ROW_REASONS = [
   'phone_invalid',
   'product_missing',
   'quantity_invalid',
+  'quantity_not_whole',
   'price_invalid',
   'date_invalid',
   'order_conflict',
@@ -151,7 +162,8 @@ export type ImportRowReason = (typeof IMPORT_ROW_REASONS)[number];
 export const IMPORT_ROW_REASON_LABELS: Record<ImportRowReason, string> = {
   phone_invalid: 'Phone number is not valid',
   product_missing: 'Product is missing',
-  quantity_invalid: 'Quantity must be a whole number of 1 or more',
+  quantity_invalid: 'Quantity must be a number above 0 (at most 3 decimals)',
+  quantity_not_whole: 'This product is sold whole; use a whole number',
   price_invalid: 'An amount is not a valid number',
   date_invalid: 'Order date is not a valid date',
   order_conflict: 'Rows with this order ID have different phone, date or status',
@@ -161,4 +173,4 @@ export const IMPORT_ROW_REASON_LABELS: Record<ImportRowReason, string> = {
   duplicate_in_file: 'Same as an earlier row in this file',
 };
 
-export const IMPORT_ROW_WARNINGS = ['date_missing', 'cost_missing', 'discount_clamped'] as const;
+export const IMPORT_ROW_WARNINGS = ['date_missing', 'cost_missing', 'discount_clamped', 'unit_unknown'] as const;

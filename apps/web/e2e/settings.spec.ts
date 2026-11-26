@@ -40,6 +40,7 @@ test('a seller changes their password in settings and logs in with it', async ({
       ['Business', 'Business details'],
       ['Profit defaults', 'Order defaults'],
       ['Couriers', 'Couriers'],
+      ['Product options', 'Product options'],
       ['Account', 'Your account'],
     ] as const) {
       await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: tab }).click();
