@@ -76,6 +76,8 @@ model Business {
   categories           Category[]
   products             Product[]
   productVariants      ProductVariant[]
+  stockBatches         StockBatch[]
+  stockWriteOffs       StockWriteOff[]
   optionLists          OptionList[]
   customers            Customer[]
   couriers             Courier[]
@@ -119,33 +121,35 @@ model Category {
 }
 
 model Product {
-  id           String           @id @default(uuid(7)) @db.Uuid
-  businessId   String           @db.Uuid
-  categoryId   String?          @db.Uuid
-  name         String
-  sku          String
+  id            String           @id @default(uuid(7)) @db.Uuid
+  businessId    String           @db.Uuid
+  categoryId    String?          @db.Uuid
+  name          String
+  sku           String
   /// Summary of the variants, kept in sync by ProductsService: the first active variant's
   /// SKU (plain product), price and cost; stock is the sum over active variants.
-  sellingPrice Int
-  costPrice    Int
-  stock        Float            @default(0)
-  status       String           @default("active")
+  sellingPrice  Int
+  costPrice     Int
+  stock         Float            @default(0)
+  status        String           @default("active")
   /// piece | kg | gram | litre | ml | metre | pack | box | strip | dozen | pair | set (CHECK).
-  unit         String           @default("piece")
-  brand        String?
-  description  String?
+  unit          String           @default("piece")
+  brand         String?
+  description   String?
   /// [{label, value}]
-  attributes   Json             @default("[]")
+  attributes    Json             @default("[]")
   /// [{name, values[]}], at most 3; empty for a plain product.
-  options      Json             @default("[]")
-  importId     String?          @db.Uuid
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  business     Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  category     Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  orderItems   OrderItem[]
-  prices       ProductPrice[]
-  variants     ProductVariant[]
+  options       Json             @default("[]")
+  /// Stock arrives in batches with an expiry date; sales take the earliest expiry first (Stage 2).
+  tracksBatches Boolean          @default(false)
+  importId      String?          @db.Uuid
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  business      Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  category      Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  orderItems    OrderItem[]
+  prices        ProductPrice[]
+  variants      ProductVariant[]
 
   @@unique([businessId, sku])
   @@map("products")
@@ -172,10 +176,57 @@ model ProductVariant {
   product      Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
   orderItems   OrderItem[]
   prices       ProductPrice[]
+  batches      StockBatch[]
 
   @@unique([businessId, sku])
   @@index([productId])
   @@map("product_variants")
+}
+
+/// A received lot of a variant: what is left of it, its expiry date and what it cost.
+model StockBatch {
+  id         String          @id @default(uuid(7)) @db.Uuid
+  businessId String          @db.Uuid
+  productId  String          @db.Uuid
+  variantId  String          @db.Uuid
+  batchNo    String?
+  expiresOn  DateTime        @db.Date
+  /// Left in this batch (decimals for weight/volume units).
+  quantity   Float
+  unitCost   Int
+  receivedOn DateTime        @db.Date
+  createdAt  DateTime        @default(now())
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  variant    ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  writeOffs  StockWriteOff[]
+
+  @@index([variantId, expiresOn])
+  @@index([businessId, expiresOn])
+  @@map("stock_batches")
+}
+
+/// Expired stock the seller cleared: what, how much, at what cost, and the expense that carries the loss.
+model StockWriteOff {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  businessId   String      @db.Uuid
+  productId    String      @db.Uuid
+  variantId    String      @db.Uuid
+  batchId      String?     @db.Uuid
+  batchNo      String?
+  expiresOn    DateTime    @db.Date
+  quantity     Float
+  unitCost     Int
+  cost         Int
+  writtenOffOn DateTime    @db.Date
+  expenseId    String?     @db.Uuid
+  createdById  String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+  business     Business    @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  batch        StockBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  expense      Expense?    @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  @@index([businessId, writtenOffOn])
+  @@map("stock_writeoffs")
 }
 
 /// A saved option list (Settings → Product options), copied onto a product's options.
@@ -297,22 +348,24 @@ model Order {
 }
 
 model OrderItem {
-  id           String         @id @default(uuid(7)) @db.Uuid
-  orderId      String         @db.Uuid
-  businessId   String         @db.Uuid
-  productId    String         @db.Uuid
-  variantId    String         @db.Uuid
-  productName  String
+  id               String         @id @default(uuid(7)) @db.Uuid
+  orderId          String         @db.Uuid
+  businessId       String         @db.Uuid
+  productId        String         @db.Uuid
+  variantId        String         @db.Uuid
+  productName      String
   /// "M / Red" at the time of the order; null for a plain product.
-  variantLabel String?
-  sku          String
-  quantity     Float
-  unitPrice    Int
-  unitCost     Int
-  lineTotal    Int
-  order        Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product      Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
-  variant      ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  variantLabel     String?
+  sku              String
+  quantity         Float
+  /// [{batchId, batchNo, expiresOn, quantity, unitCost}]: the batches this line took (FEFO); [] if untracked.
+  batchAllocations Json           @default("[]")
+  unitPrice        Int
+  unitCost         Int
+  lineTotal        Int
+  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          Product        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant          ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
   @@index([businessId, productId])
@@ -360,6 +413,7 @@ model Expense {
   updatedAt   DateTime        @updatedAt
   business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
   category    ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  writeOffs   StockWriteOff[]
 
   @@index([businessId, expenseDate])
   @@map("expenses")

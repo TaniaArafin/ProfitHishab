@@ -1,6 +1,6 @@
 # Products for every kind of business — design
 
-**Status:** approved by the owner on 2026-11-26. Stage 1 built (2026-11-26); Stages 2–3 not started.
+**Status:** approved by the owner on 2026-11-26. Stages 1 and 2 built (2026-11-26); Stage 3 not started.
 **Date:** 2026-11-25
 
 ## 1. Why
@@ -191,14 +191,14 @@ Product page — Napa 500mg                         Stock 320 strips
 | **Total** | **150** | | **৳1,389** (avg ৳9.26/strip) |
 
 The order line keeps the real cost ৳1,389, so profit uses the cost of the batches actually sold.
-Batch NP2604 is now empty; NP2611 has 170 left. An expired batch can be written off from the product
-page; the written-off cost appears as a loss in that month's profit.
+Batch NP2604 is now empty; NP2611 has 170 left. An expired batch can't be sold; **Clear stock** on the product list or product
+page removes it, and its cost appears as a loss in that month's profit (owner decision 2, section 14).
 
 **Dashboard alert (also for grocery and cosmetics)**
 
 ```
 ⚠ 3 batches expire within 30 days (৳4,860 at cost)   [ See them ]
-✕ 1 batch has expired (৳620 at cost)                 [ Write off ]
+✕ 1 batch has expired (৳620 at cost)                 [ Clear stock ]
 ```
 
 ### 5.5 Electronics — "Redmi Note 13" by storage, with IMEI and warranty
@@ -351,5 +351,8 @@ Each stage ships on its own and keeps everything working.
 ## 14. Owner decisions
 
 1. Add the business type **"Medical / pharmacy"**: yes (approved with the design).
-2. Expired batches, block or only warn: decided when Stage 2 is planned.
+2. Expired stock (decided 2026-11-26): **expired stock can't be sold, and the seller clears it in one click.**
+   - **Order search:** a batch past its expiry date can't be picked for an order. A product whose stock has all expired doesn't appear in the order search. A product with some fresh stock appears, and only the fresh quantity can be sold (FEFO uses fresh batches only).
+   - **Product list:** an expired product stays visible, marked "Expired" with how much stock and its cost, and a **Clear stock** button.
+   - **Clear stock:** confirmed in-page first, then the stock of the expired batches goes to 0. The cost of what was cleared counts as a loss in that month's profit (as in 5.4). A record of what was cleared and when is kept.
 3. Stage order 1 → 2 → 3: yes (approved with the design).

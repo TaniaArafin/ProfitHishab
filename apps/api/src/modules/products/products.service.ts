@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import {
+  allocateFefo,
   optionValuesKey,
+  roundQuantity,
   presetOptionLists,
   productUpdateSchema,
   suggestVariantSku,
   todayIn,
   variantLabel,
   type BulkCostInput,
+  type BatchAllocation,
   type CategoryDto,
   type OptionListDto,
   type OptionListInput,
@@ -22,6 +25,7 @@ import {
 import { ZodError } from 'zod';
 import type { AuthContext } from '../../common/auth';
 import type { Tx } from '../../common/prisma.service';
+import { BatchesRepository } from './batches.repository';
 import { CategoriesRepository } from './categories.repository';
 import { ProductPricesRepository } from './product-prices.repository';
 import { ProductSearch } from './product-search';
@@ -46,6 +50,9 @@ export interface VariantForOrder {
   archived: boolean;
   sellingPrice: number;
   costPrice: number;
+  /** Stock in expired batches, and stock that can still be sold (stock − expired). */
+  expiredStock: number;
+  freshStock: number;
 }
 
 type Option = { name: string; values: string[] };
@@ -85,6 +92,7 @@ export class ProductsService {
     private readonly prices: ProductPricesRepository,
     private readonly search: ProductSearch,
     private readonly importer: ProductsImportService,
+    private readonly batches: BatchesRepository,
   ) {}
 
   /**
@@ -99,32 +107,34 @@ export class ProductsService {
       if (hits) {
         if (hits.ids.length === 0) return { data: [], total: hits.found };
         const { rows } = await this.repo.paginate(businessId, { ...filters, ids: hits.ids, page: 1, perPage: hits.ids.length });
-        return { data: await this.withVariants(businessId, rows), total: hits.found };
+        return { data: await this.withVariants(businessId, rows, filters.today), total: hits.found };
       }
     }
     const ids = q ? await this.search.ids(businessId, q, { status }) : null;
     const { rows, total } = await this.repo.paginate(businessId, ids ? { ...filters, ids } : filters);
-    return { data: await this.withVariants(businessId, rows), total };
+    return { data: await this.withVariants(businessId, rows, filters.today), total };
   }
 
-  private async withVariants(businessId: string, rows: ProductRow[]): Promise<ProductDto[]> {
-    const variants = await this.variants.forProducts(
-      businessId,
-      rows.map((r) => r.id),
-    );
+  private async withVariants(businessId: string, rows: ProductRow[], today = todayIn()): Promise<ProductDto[]> {
+    const ids = rows.map((r) => r.id);
+    const [variants, expired] = await Promise.all([
+      this.variants.forProducts(businessId, ids),
+      this.batches.expiredByVariant(businessId, ids, today),
+    ]);
     const byProduct = new Map<string, VariantRow[]>();
     for (const v of variants) byProduct.set(v.productId, [...(byProduct.get(v.productId) ?? []), v]);
-    return rows.map((r) => toProductDto(r, byProduct.get(r.id) ?? []));
+    return rows.map((r) => toProductDto(r, byProduct.get(r.id) ?? [], expired));
   }
 
-  async show(businessId: string, productId: string): Promise<ProductDto & { pastOrderCount: number }> {
-    const [row, variants, pastOrderCount] = await Promise.all([
+  async show(businessId: string, productId: string, today = todayIn()): Promise<ProductDto & { pastOrderCount: number }> {
+    const [row, variants, pastOrderCount, expired] = await Promise.all([
       this.repo.findRow(businessId, productId),
       this.variants.forProducts(businessId, [productId]),
       this.repo.countOrdersWithProduct(businessId, productId),
+      this.batches.expiredByVariant(businessId, [productId], today),
     ]);
     if (!row) throw ProductError.notFound();
-    return { ...toProductDto(row, variants), pastOrderCount };
+    return { ...toProductDto(row, variants, expired), pastOrderCount };
   }
 
   /**
@@ -136,7 +146,7 @@ export class ProductsService {
     const { businessId } = auth;
     await this.assertCategory(businessId, input.categoryId);
     const sku = input.sku ?? (await this.repo.nextSku(businessId));
-    const planned = this.plan(input.variants, input.options, sku, []);
+    const planned = this.plan(input.variants, input.options, sku, [], input.tracksBatches);
     await this.assertSkus(businessId, sku, input.options.length === 0, planned, [], undefined);
     const summary = this.summary(planned);
 
@@ -153,6 +163,7 @@ export class ProductsService {
           attributes: input.attributes,
           options: input.options,
           status: input.status,
+          tracksBatches: input.tracksBatches,
           ...summary,
         },
         tx,
@@ -203,7 +214,7 @@ export class ProductsService {
       productUpdateSchema.parse({ unit, variants: stored });
     }
 
-    const planned = incoming ? this.plan(incoming, options, sku, stored) : null;
+    const planned = incoming ? this.plan(incoming, options, sku, stored, input.tracksBatches ?? current.tracksBatches) : null;
     const kept = new Set(planned?.flatMap((v) => (v.id ? [v.id] : [])) ?? stored.map((v) => v.id));
     const dropped = stored.filter((v) => !kept.has(v.id));
     if (planned) await this.assertSkus(businessId, sku, plain, planned, dropped, productId);
@@ -236,6 +247,7 @@ export class ProductsService {
           ...(input.attributes ? { attributes: input.attributes } : {}),
           ...(input.options ? { options: input.options } : {}),
           ...(input.status ? { status: input.status } : {}),
+          ...(input.tracksBatches !== undefined ? { tracksBatches: input.tracksBatches } : {}),
         },
         tx,
       );
@@ -273,8 +285,12 @@ export class ProductsService {
     ];
   }
 
-  /** Matches each incoming variant to a stored one (by id, else by option values) and fills its SKU. */
-  private plan(incoming: VariantInput[], options: Option[], productSku: string, stored: VariantRow[]): PlannedVariant[] {
+  /**
+   * Matches each incoming variant to a stored one (by id, else by option values) and fills its SKU. A product
+   * that tracks batches keeps its stored stock (new variants start at 0): only Receive stock, orders and
+   * Clear stock change it, so a form saved with an old number can't overwrite it.
+   */
+  private plan(incoming: VariantInput[], options: Option[], productSku: string, stored: VariantRow[], tracked = false): PlannedVariant[] {
     const byId = new Map(stored.map((v) => [v.id, v]));
     const byKey = new Map(stored.map((v) => [optionValuesKey(v.optionValues), v]));
     const plain = options.length === 0;
@@ -290,7 +306,7 @@ export class ProductsService {
         sku: plain ? productSku : (v.sku ?? existing?.sku ?? suggestVariantSku(productSku, optionValues, options)),
         sellingPrice: v.sellingPrice,
         costPrice: v.costPrice,
-        stock: v.stock,
+        stock: tracked ? (existing?.stock ?? 0) : v.stock,
         status: v.status,
       };
     });
@@ -439,6 +455,7 @@ export class ProductsService {
     refs: ReadonlyArray<{ variantId?: string; productId?: string }>,
     orderDate: string,
     db: Tx,
+    today = todayIn(),
   ): Promise<VariantForOrder[]> {
     const variantIds = [...new Set(refs.flatMap((r) => (r.variantId ? [r.variantId] : [])))];
     const productIds = [...new Set(refs.flatMap((r) => (r.productId ? [r.productId] : [])))];
@@ -456,10 +473,16 @@ export class ProductsService {
       if (all[0].options.length > 0 || all.length > 1) throw ProductError.variantRequired(all[0].productName, `items.${i}.variantId`);
       return all[0];
     });
-    const prices = await this.prices.on(businessId, [...new Set(chosen.map((v) => v.id))], orderDate, db);
+    const [prices, expired] = await Promise.all([
+      this.prices.on(businessId, [...new Set(chosen.map((v) => v.id))], orderDate, db),
+      this.batches.expiredByVariant(businessId, [...new Set(chosen.map((v) => v.productId))], today),
+    ]);
     return chosen.map((v) => {
       const dated = prices.get(v.id) ?? v; // no history row yet: today's price
+      const expiredStock = expired.get(v.id)?.quantity ?? 0;
       return {
+        expiredStock,
+        freshStock: roundQuantity(v.stock - expiredStock),
         variantId: v.id,
         productId: v.productId,
         productName: v.productName,
@@ -471,6 +494,50 @@ export class ProductsService {
         costPrice: dated.costPrice,
       };
     });
+  }
+
+  /**
+   * Takes each line's stock off the shelf (FR-PROD-07: may go negative). A variant with batches gives
+   * its stock first-expiry-first from fresh batches only (`allocateFefo`); what they can't cover is
+   * `unallocated`. Batches are locked in id order. Returns each line's allocations, in input order.
+   */
+  async takeStock(
+    businessId: string,
+    lines: ReadonlyArray<{ variantId: string; quantity: number }>,
+    today: string,
+    tx: Tx,
+  ): Promise<Array<{ allocations: BatchAllocation[]; unallocated: number }>> {
+    const batches = await this.batches.lockForVariants(businessId, [...new Set(lines.map((l) => l.variantId))], tx);
+    const left = new Map(batches.map((b) => [b.id, b.quantity]));
+    const deltas = new Map<string, number>();
+    const result = lines.map((line) => {
+      const mine = batches.filter((b) => b.variantId === line.variantId).map((b) => ({ ...b, quantity: left.get(b.id) ?? 0 }));
+      if (mine.length === 0) return { allocations: [], unallocated: line.quantity };
+      const { allocations, unallocated } = allocateFefo(mine, line.quantity, today);
+      for (const a of allocations) {
+        left.set(a.batchId, roundQuantity((left.get(a.batchId) ?? 0) - a.quantity));
+        deltas.set(a.batchId, (deltas.get(a.batchId) ?? 0) - a.quantity);
+      }
+      const byId = new Map(mine.map((b) => [b.id, b]));
+      return {
+        unallocated,
+        allocations: allocations.map((a) => ({ ...a, batchNo: byId.get(a.batchId)!.batchNo, expiresOn: byId.get(a.batchId)!.expiresOn })),
+      };
+    });
+    await this.batches.adjust(deltas, tx);
+    await this.moveStock(lines, -1, tx);
+    return result;
+  }
+
+  /** Puts lines' stock back, each batch quantity into the batch it came from. */
+  async returnStock(lines: ReadonlyArray<{ variantId: string; quantity: number; batchAllocations: unknown }>, tx: Tx): Promise<void> {
+    const deltas = new Map<string, number>();
+    for (const line of lines) {
+      const allocations = Array.isArray(line.batchAllocations) ? (line.batchAllocations as BatchAllocation[]) : [];
+      for (const a of allocations) deltas.set(a.batchId, (deltas.get(a.batchId) ?? 0) + a.quantity);
+    }
+    await this.batches.adjust(deltas, tx);
+    await this.moveStock(lines, +1, tx);
   }
 
   /** direction -1 takes stock off the shelf, +1 puts it back. Stock may go negative (FR-PROD-07). */

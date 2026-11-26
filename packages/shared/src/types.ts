@@ -103,6 +103,10 @@ export interface ProductDto {
   options: Array<{ name: string; values: string[] }>;
   /** Every product has at least one; a plain product has one with no option values and label "". */
   variants: VariantDto[];
+  tracksBatches: boolean;
+  /** Stock in batches past their expiry date (can't be sold), and its cost. */
+  expiredStock: number;
+  expiredCost: number;
 }
 
 /** What is sold and counted: one combination of a product's option values. */
@@ -116,6 +120,43 @@ export interface VariantDto {
   costPrice: number;
   stock: number;
   status: VariantStatus;
+  /** Part of `stock` in expired batches; it can't be sold. */
+  expiredStock: number;
+}
+
+/** One batch an order line took stock from (FEFO), as stored on the line. */
+export interface BatchAllocation {
+  batchId: string;
+  batchNo: string | null;
+  expiresOn: string;
+  quantity: number;
+  unitCost: number;
+}
+
+/** A received batch with stock left (spec 5.4). */
+export interface BatchDto {
+  id: string;
+  variantId: string;
+  variantLabel: string;
+  batchNo: string | null;
+  expiresOn: string;
+  receivedOn: string;
+  quantity: number;
+  unitCost: number;
+  expired: boolean;
+  /** Negative once expired. */
+  expiresInDays: number;
+}
+
+/** Dashboard alert: expired and soon-expiring batches with stock, at cost. */
+export interface ExpirySummaryDto {
+  expired: { batches: number; products: number; cost: number };
+  soon: { batches: number; cost: number };
+}
+
+export interface ClearStockResultDto {
+  quantity: number;
+  cost: number;
 }
 
 /** A saved option list (Settings → Product options). */
@@ -182,6 +223,8 @@ export interface OrderItemDto {
   /** "M / Red"; null for a plain product. */
   variantLabel: string | null;
   unit: Unit;
+  /** The batches this line's stock came from (first expiry first); empty for untracked products. */
+  batches: Array<{ batchNo: string | null; expiresOn: string; quantity: number }>;
   sku: string;
   quantity: number;
   unitPrice: number;

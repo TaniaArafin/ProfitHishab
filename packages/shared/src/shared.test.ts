@@ -348,11 +348,13 @@ describe('variant helpers', () => {
       unit: 'piece',
       options: ['Size', 'Colour'],
       attributes: ['Material', 'Fit'],
+      tracksBatches: false,
     });
     expect(businessTypeDefaults('Medical & pharmacy')).toEqual({
       unit: 'strip',
       options: [],
       attributes: ['Generic name', 'Strength', 'Form'],
+      tracksBatches: true,
     });
     expect(businessTypeDefaults(null).unit).toBe('piece');
     expect(businessTypeDefaults('Something else').unit).toBe('piece');
@@ -428,5 +430,52 @@ describe('orderItemSchema', () => {
     expect(orderItemSchema.safeParse({ variantId: id, quantity: 0 }).success).toBe(false);
     expect(orderItemSchema.safeParse({ variantId: id, quantity: 1.2345 }).success).toBe(false);
     expect(orderItemSchema.parse({ variantId: id, quantity: 2.5 }).quantity).toBe(2.5);
+  });
+});
+
+// ── Stage 2: batches and expiry ────────────────────────────────────────
+
+import { allocateFefo, isExpired } from './index';
+
+describe('allocateFefo (spec 5.4)', () => {
+  const napa = [
+    { id: 'b2', expiresOn: '2027-06-30', quantity: 200, unitCost: 950 },
+    { id: 'b1', expiresOn: '2026-12-31', quantity: 120, unitCost: 920 },
+  ];
+
+  it('takes the batch that expires first, then the next', () => {
+    const r = allocateFefo(napa, 150, '2026-11-26');
+    expect(r.allocations).toEqual([
+      { batchId: 'b1', quantity: 120, unitCost: 920 },
+      { batchId: 'b2', quantity: 30, unitCost: 950 },
+    ]);
+    expect(r.unallocated).toBe(0);
+    expect(r.allocations.reduce((s, a) => s + a.quantity * a.unitCost, 0)).toBe(138900);
+  });
+
+  it('skips expired and empty batches, uses one expiring today, and reports the shortfall', () => {
+    const r = allocateFefo(
+      [
+        { id: 'old', expiresOn: '2026-11-25', quantity: 50, unitCost: 900 },
+        { id: 'today', expiresOn: '2026-11-26', quantity: 2.5, unitCost: 1000 },
+        { id: 'empty', expiresOn: '2026-11-27', quantity: 0, unitCost: 1 },
+      ],
+      4,
+      '2026-11-26',
+    );
+    expect(r.allocations).toEqual([{ batchId: 'today', quantity: 2.5, unitCost: 1000 }]);
+    expect(r.unallocated).toBe(1.5);
+  });
+
+  it('knows when a batch has expired', () => {
+    expect(isExpired('2026-11-25', '2026-11-26')).toBe(true);
+    expect(isExpired('2026-11-26', '2026-11-26')).toBe(false);
+  });
+
+  it('turns tracking on by default for medicine, grocery and cosmetics', () => {
+    expect(businessTypeDefaults('Medical & pharmacy').tracksBatches).toBe(true);
+    expect(businessTypeDefaults('Food & grocery').tracksBatches).toBe(true);
+    expect(businessTypeDefaults('Cosmetics & beauty').tracksBatches).toBe(true);
+    expect(businessTypeDefaults('Clothing & fashion').tracksBatches).toBe(false);
   });
 });

@@ -69,4 +69,18 @@ describe('ProductPicker (WAI-ARIA combobox)', () => {
     fireEvent.mouseDown(screen.getByRole('option', { name: /XL \/ Red/ }));
     expect(onPick).toHaveBeenCalledWith(kurti, kurti.variants[1]);
   });
+
+  it('hides a product whose stock has all expired and shows only fresh stock', () => {
+    const ace = plainProduct({ id: 'ace', name: 'Ace 500mg', unit: 'strip', stock: 60, tracksBatches: true, expiredStock: 60 });
+    ace.variants[0] = { ...ace.variants[0], stock: 60, expiredStock: 60 };
+    const napa = plainProduct({ id: 'napa', name: 'Napa 500mg', unit: 'strip', stock: 100, tracksBatches: true, expiredStock: 60 });
+    napa.variants[0] = { ...napa.variants[0], stock: 100, expiredStock: 60 };
+    found = [ace, napa];
+    render(<ProductPicker onPick={vi.fn()} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'a' } });
+    const options = screen.getAllByRole('option');
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent('Napa 500mg');
+    expect(options[0]).toHaveTextContent('40 strip in stock');
+  });
 });

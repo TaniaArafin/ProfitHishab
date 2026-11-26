@@ -4,6 +4,7 @@ import {
   allowsDecimal,
   canTransition,
   holdsStock,
+  fefoUnitCost,
   lineAmount,
   orderTotals,
   UNIT_LABELS,
@@ -190,10 +191,11 @@ export class OrdersService {
 
       let items: NewOrderItem[] = order.items;
       if (input.items) {
-        if (keepsStock) await this.products.moveStock(order.items, +1, tx);
-        items = await this.buildItems(businessId, input.items, input.orderDate ?? fromDbDate(order.orderDate), tx, order);
+        if (keepsStock) await this.products.returnStock(order.items, tx);
+        const today = todayIn(auth.timezone);
+        const built = await this.buildItems(businessId, input.items, input.orderDate ?? fromDbDate(order.orderDate), tx, today, order);
+        items = keepsStock ? await this.takeStock(businessId, built, today, tx) : built.items;
         await this.repo.replaceItems(businessId, orderId, items, tx);
-        if (keepsStock) await this.products.moveStock(items, -1, tx);
       }
 
       if (input.courierId) await this.business.assertCourierBelongs(businessId, input.courierId, tx);
@@ -247,9 +249,12 @@ export class OrdersService {
     const orderNo = await this.business.reserveOrderNo(businessId, tx);
     const defaults = await this.business.orderDefaults(businessId, input.courierId, tx);
     const customer = await this.customers.findOrCreateForOrder(businessId, input.customer, tx);
-    const orderDate = input.orderDate ?? todayIn(defaults.timezone);
-    const items = await this.buildItems(businessId, input.items, orderDate, tx);
+    const today = todayIn(defaults.timezone);
+    const orderDate = input.orderDate ?? today;
     const status = input.status;
+    const built = await this.buildItems(businessId, input.items, orderDate, tx, today);
+    // Stock (and its batches, first expiry first) is taken before the order is written: FEFO sets the line cost.
+    const items = holdsStock(status) ? await this.takeStock(businessId, built, today, tx) : built.items;
 
     const order = await this.repo.create(
       businessId,
@@ -276,7 +281,6 @@ export class OrdersService {
       tx,
     );
 
-    if (holdsStock(status)) await this.products.moveStock(items, -1, tx);
     await this.repo.addHistory([{ orderId: order.id, businessId, fromStatus: null, toStatus: status, changedById: auth.userId }], tx);
     return order.id;
   }
@@ -295,8 +299,9 @@ export class OrdersService {
     const stocked = orders.filter(movesStock);
     const restock = stocked.filter((o) => holdsStock(o.status as OrderStatus) && !holdsStock(to)).flatMap((o) => o.items);
     const unstock = stocked.filter((o) => !holdsStock(o.status as OrderStatus) && holdsStock(to)).flatMap((o) => o.items);
-    await this.products.moveStock(restock, +1, tx);
-    await this.products.moveStock(unstock, -1, tx);
+    await this.products.returnStock(restock, tx);
+    // A move back into a stock-holding status (none allowed today) takes stock again, first expiry first.
+    await this.products.takeStock(auth.businessId, unstock, todayIn(auth.timezone), tx);
 
     for (const order of orders) {
       await this.repo.update(
@@ -323,22 +328,26 @@ export class OrdersService {
 
   /**
    * New lines take the variant's price and cost in effect on the order date; lines already on the
-   * order (same variant) keep theirs. A decimal quantity is refused for a unit sold whole.
+   * order (same variant) keep theirs. A decimal quantity is refused for a unit sold whole, and a new
+   * line whose stock has all expired is refused (owner decision 2). `fresh[i]` marks lines new to the order.
    */
   private async buildItems(
     businessId: string,
     input: ItemInput[],
     orderDate: string,
     tx: Tx,
+    today: string,
     existing?: OrderWithItems,
-  ): Promise<NewOrderItem[]> {
-    const variants = await this.products.variantsForOrder(businessId, input, orderDate, tx);
+  ): Promise<{ items: NewOrderItem[]; fresh: boolean[] }> {
+    const variants = await this.products.variantsForOrder(businessId, input, orderDate, tx, today);
     const previous = new Map(existing?.items.map((i) => [i.variantId, i]) ?? []);
 
-    return input.map((item, index) => {
+    const items = input.map((item, index) => {
       const v = variants[index];
       const before = previous.get(v.variantId);
-      if (v.archived && !before) throw ProductError.archived(v.variantLabel ? `${v.productName} — ${v.variantLabel}` : v.productName);
+      const name = v.variantLabel ? `${v.productName} — ${v.variantLabel}` : v.productName;
+      if (v.archived && !before) throw ProductError.archived(name);
+      if (!before && v.expiredStock > 0 && v.freshStock <= 0) throw OrderError.stockExpired(name, index);
       if (!allowsDecimal(v.unit) && !Number.isInteger(item.quantity)) {
         throw OrderError.wholeQuantityRequired(v.productName, UNIT_LABELS[v.unit], index);
       }
@@ -353,7 +362,28 @@ export class OrdersService {
         unitPrice,
         unitCost: before?.unitCost ?? v.costPrice,
         lineTotal: lineAmount(item.quantity, unitPrice),
+        batchAllocations: [],
       };
+    });
+    return { items, fresh: items.map((i) => !previous.has(i.variantId)) };
+  }
+
+  /**
+   * Takes the lines' stock (batches first-expiry-first) and records where it came from. A line new to the
+   * order is costed from the batches it took (the rest at its own cost); a line already on it keeps its cost.
+   */
+  private async takeStock(
+    businessId: string,
+    built: { items: NewOrderItem[]; fresh: boolean[] },
+    today: string,
+    tx: Tx,
+  ): Promise<NewOrderItem[]> {
+    const taken = await this.products.takeStock(businessId, built.items, today, tx);
+    return built.items.map((item, i) => {
+      const { allocations, unallocated } = taken[i];
+      if (allocations.length === 0) return item;
+      const unitCost = built.fresh[i] ? fefoUnitCost(allocations, unallocated, item.unitCost, item.quantity) : item.unitCost;
+      return { ...item, unitCost, batchAllocations: allocations };
     });
   }
 

@@ -222,6 +222,18 @@ describe('ProfitHishab API (e2e)', () => {
     expect(stealVariant.status).toBe(404);
     expect((await intruder.get(`/products/prices-on?variantIds=${variantId}&date=2026-10-01`)).body.data).toEqual([]);
 
+    // stock_batches, stock_writeoffs
+    const syrup = await owner.send('post', '/products', {
+      name: 'Secret Syrup',
+      tracksBatches: true,
+      sellingPrice: tk(90),
+      costPrice: tk(60),
+    });
+    await owner.send('post', `/products/${syrup.body.data.id}/batches`, { expiresOn: '2020-01-01', quantity: 2, unitCost: tk(60) });
+    expect((await intruder.get(`/products/${syrup.body.data.id}/batches`)).status).toBe(404);
+    expect((await intruder.send('post', `/products/${syrup.body.data.id}/clear-expired`)).status).toBe(404);
+    expect((await intruder.get('/products/expiry-summary')).body.data.expired.batches).toBe(0);
+
     // option_lists
     const list = await owner.send('post', '/option-lists', { name: 'Secret size', values: ['S'] });
     expect((await intruder.send('patch', `/option-lists/${list.body.data.id}`, { name: 'Mine' })).status).toBe(404);

@@ -52,16 +52,18 @@ export interface BusinessTypeDefaults {
   unit: Unit;
   options: string[];
   attributes: string[];
+  /** New products track batches and expiry dates (spec §6). */
+  tracksBatches: boolean;
 }
 
 const DEFAULTS: Record<BusinessType, BusinessTypeDefaults> = {
-  'Clothing & fashion': { unit: 'piece', options: ['Size', 'Colour'], attributes: ['Material', 'Fit'] },
-  'Cosmetics & beauty': { unit: 'piece', options: ['Shade'], attributes: ['Skin type', 'Volume'] },
-  'Food & grocery': { unit: 'kg', options: ['Pack size'], attributes: ['Origin'] },
-  'Electronics & gadgets': { unit: 'piece', options: ['Storage', 'Colour'], attributes: ['Model'] },
-  'Medical & pharmacy': { unit: 'strip', options: [], attributes: ['Generic name', 'Strength', 'Form'] },
-  'Home & lifestyle': { unit: 'piece', options: [], attributes: [] },
-  Other: { unit: 'piece', options: [], attributes: [] },
+  'Clothing & fashion': { unit: 'piece', options: ['Size', 'Colour'], attributes: ['Material', 'Fit'], tracksBatches: false },
+  'Cosmetics & beauty': { unit: 'piece', options: ['Shade'], attributes: ['Skin type', 'Volume'], tracksBatches: true },
+  'Food & grocery': { unit: 'kg', options: ['Pack size'], attributes: ['Origin'], tracksBatches: true },
+  'Electronics & gadgets': { unit: 'piece', options: ['Storage', 'Colour'], attributes: ['Model'], tracksBatches: false },
+  'Medical & pharmacy': { unit: 'strip', options: [], attributes: ['Generic name', 'Strength', 'Form'], tracksBatches: true },
+  'Home & lifestyle': { unit: 'piece', options: [], attributes: [], tracksBatches: false },
+  Other: { unit: 'piece', options: [], attributes: [], tracksBatches: false },
 };
 
 function isBusinessType(value: string | null | undefined): value is BusinessType {
@@ -71,7 +73,7 @@ function isBusinessType(value: string | null | undefined): value is BusinessType
 /** What a new product starts with for this business type (spec section 6). Unknown → piece, nothing suggested. */
 export function businessTypeDefaults(type: string | null | undefined): BusinessTypeDefaults {
   const d = isBusinessType(type) ? DEFAULTS[type] : DEFAULTS.Other;
-  return { unit: d.unit, options: [...d.options], attributes: [...d.attributes] };
+  return { unit: d.unit, options: [...d.options], attributes: [...d.attributes], tracksBatches: d.tracksBatches };
 }
 
 const COLOURS = ['Red', 'Blue', 'Black', 'White', 'Green'];
@@ -147,4 +149,56 @@ export function hasAtMostDecimals(q: number, decimals = QUANTITY_DECIMALS): bool
 /** A line's money in whole poisha: quantity × unit amount, rounded. The one rounding rule everywhere. */
 export function lineAmount(quantity: number, unit: number): number {
   return Math.round(quantity * unit);
+}
+
+// ── Batches and expiry (Stage 2) ───────────────────────────────────────
+
+/** Days ahead that count as "expiring soon" (dashboard alert, product filter). */
+export const EXPIRY_SOON_DAYS = 30;
+
+/** A batch is expired from the day after its expiry date (business timezone); it sells on that day. */
+export function isExpired(expiresOn: string, today: string): boolean {
+  return expiresOn < today;
+}
+
+export interface FefoBatch {
+  id: string;
+  expiresOn: string;
+  quantity: number;
+  unitCost: number;
+}
+
+/**
+ * First expiry, first out: takes `quantity` from fresh batches (not expired, not empty), the earliest
+ * expiry first, then by id. What the fresh batches cannot cover is `unallocated`.
+ */
+export function allocateFefo(
+  batches: readonly FefoBatch[],
+  quantity: number,
+  today: string,
+): { allocations: Array<{ batchId: string; quantity: number; unitCost: number }>; unallocated: number } {
+  const fresh = batches
+    .filter((b) => b.quantity > 0 && !isExpired(b.expiresOn, today))
+    .sort((a, b) => (a.expiresOn === b.expiresOn ? a.id.localeCompare(b.id) : a.expiresOn.localeCompare(b.expiresOn)));
+  const allocations: Array<{ batchId: string; quantity: number; unitCost: number }> = [];
+  let left = roundQuantity(quantity);
+  for (const b of fresh) {
+    if (left <= 0) break;
+    const take = roundQuantity(Math.min(left, b.quantity));
+    allocations.push({ batchId: b.id, quantity: take, unitCost: b.unitCost });
+    left = roundQuantity(left - take);
+  }
+  return { allocations, unallocated: Math.max(0, left) };
+}
+
+/** Average unit cost of a line in whole poisha: allocated batches at their cost, the rest at `fallbackCost`. */
+export function fefoUnitCost(
+  allocations: ReadonlyArray<{ quantity: number; unitCost: number }>,
+  unallocated: number,
+  fallbackCost: number,
+  quantity: number,
+): number {
+  if (quantity <= 0) return fallbackCost;
+  const total = allocations.reduce((s, a) => s + a.quantity * a.unitCost, 0) + unallocated * fallbackCost;
+  return Math.round(total / quantity);
 }

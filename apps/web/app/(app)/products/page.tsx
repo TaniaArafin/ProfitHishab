@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Package, Pencil, Plus, Search, SearchX } from 'lucide-react';
 import Link from 'next/link';
-import { formatTaka, type CategoryDto, type Paginated, type ProductDto } from '@ph/shared';
+import { formatTaka, UNIT_LABELS, type CategoryDto, type ExpirySummaryDto, type Paginated, type ProductDto } from '@ph/shared';
 import { SelectField } from '@/components/SelectField';
 import { Banner, EmptyState, PageHeader, Pagination, TableCard } from '@/components/ui';
 import { Badge } from '@/components/ui/badge';
@@ -12,24 +12,26 @@ import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { apiGet, qs } from '@/lib/server-api';
+import { ClearStockButton } from './ClearStockButton';
 import { priceText, stockText, variantsText } from './display';
 
 export const metadata: Metadata = { title: 'Products' };
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
-const KEYS = ['q', 'categoryId', 'status', 'costMissing', 'sort', 'page'];
+const KEYS = ['q', 'categoryId', 'status', 'costMissing', 'expiry', 'sort', 'page'];
 
 export default async function ProductsPage({ searchParams }: Props) {
   const sp = await searchParams;
   const status = typeof sp.status === 'string' ? sp.status : 'active';
-  const [products, categories, missing] = await Promise.all([
+  const [products, categories, missing, { data: expiry }] = await Promise.all([
     apiGet<Paginated<ProductDto>>(`/products?${qs({ ...sp, status }, KEYS)}`),
     apiGet<{ data: CategoryDto[] }>('/categories'),
     apiGet<{ data: unknown[] }>('/products/missing-cost'),
+    apiGet<{ data: ExpirySummaryDto }>('/products/expiry-summary'),
   ]);
   const value = (k: string) => (typeof sp[k] === 'string' ? sp[k] : '');
   const keep = Object.fromEntries(KEYS.filter((k) => k !== 'page').map((k) => [k, value(k) || undefined]));
-  const filtered = Boolean(value('q') || value('categoryId') || value('costMissing'));
+  const filtered = Boolean(value('q') || value('categoryId') || value('costMissing') || value('expiry'));
 
   return (
     <div className="flex flex-col gap-5">
@@ -52,6 +54,16 @@ export default async function ProductsPage({ searchParams }: Props) {
           is overstated.{' '}
           <Link href="/products/missing-cost" className="font-semibold underline">
             Fill in costs
+          </Link>
+        </Banner>
+      ) : null}
+
+      {expiry.expired.products > 0 && value('expiry') !== 'expired' ? (
+        <Banner tone="warn">
+          <strong>{expiry.expired.products === 1 ? '1 product has' : `${expiry.expired.products} products have`} expired stock</strong> (
+          {formatTaka(expiry.expired.cost)} at cost). It can&apos;t be sold.{' '}
+          <Link href="/products?expiry=expired" className="font-semibold underline">
+            See and clear it
           </Link>
         </Banner>
       ) : null}
@@ -91,6 +103,22 @@ export default async function ProductsPage({ searchParams }: Props) {
               options={[
                 { value: 'active', label: 'Active' },
                 { value: 'archived', label: 'Archived' },
+              ]}
+            />
+          </div>
+          <div>
+            <Label className="sr-only" htmlFor="expiry">
+              Expiry
+            </Label>
+            <SelectField
+              id="expiry"
+              name="expiry"
+              className="sm:w-auto sm:min-w-[9rem]"
+              defaultValue={value('expiry')}
+              options={[
+                { value: '', label: 'Any expiry' },
+                { value: 'expired', label: 'Expired stock' },
+                { value: 'soon', label: 'Expiring in 30 days' },
               ]}
             />
           </div>
@@ -172,8 +200,14 @@ export default async function ProductsPage({ searchParams }: Props) {
                     </TableCell>
                     <TableCell className={cn('whitespace-nowrap text-right tabular', p.stock < 0 && 'font-semibold text-loss')}>
                       {stockText(p)}
+                      {p.expiredStock > 0 ? <ExpiredNote product={p} /> : null}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="whitespace-nowrap text-right">
+                      {p.expiredStock > 0 ? (
+                        <span className="mr-2 inline-block">
+                          <ClearStockButton product={p} />
+                        </span>
+                      ) : null}
                       <Button asChild variant="secondary" size="sm">
                         <Link href={`/products/${p.id}`} aria-label={`Edit ${p.name}`}>
                           <Pencil className="h-3.5 w-3.5" />
@@ -217,6 +251,12 @@ export default async function ProductsPage({ searchParams }: Props) {
                     <span>
                       Stock <span className={cn('tabular', p.stock < 0 ? 'font-semibold text-loss' : 'text-ink')}>{stockText(p)}</span>
                     </span>
+                    {p.expiredStock > 0 ? (
+                      <span className="flex w-full items-center justify-between gap-2">
+                        <ExpiredNote product={p} />
+                        <ClearStockButton product={p} />
+                      </span>
+                    ) : null}
                   </div>
                 </Card>
               </li>
@@ -240,5 +280,16 @@ function CostMissingBadge() {
     <Badge variant="warning" className="rounded px-1.5 py-0.5 ring-0">
       Cost missing
     </Badge>
+  );
+}
+
+/** "✕ Expired: 60 strip (৳480)": stock that can't be sold until cleared. */
+function ExpiredNote({ product }: { product: ProductDto }) {
+  const unit = product.unit === 'piece' ? '' : ` ${UNIT_LABELS[product.unit]}`;
+  return (
+    <span className="block text-xs font-medium text-loss">
+      ✕ Expired: {product.expiredStock}
+      {unit} ({formatTaka(product.expiredCost)})
+    </span>
   );
 }

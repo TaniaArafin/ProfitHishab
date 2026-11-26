@@ -16,6 +16,9 @@ import type { Tx } from '../../common/prisma.service';
 import { ExpenseError } from './expenses.errors';
 import { ExpensesRepository } from './expenses.repository';
 
+/** The built-in category that carries cleared expired stock. */
+export const EXPIRED_STOCK_CATEGORY = 'Expired stock';
+
 export const toCategoryDto = (c: ExpenseCategory): ExpenseCategoryDto => ({
   id: c.id,
   name: c.name,
@@ -36,6 +39,30 @@ const toExpenseDto = (e: Expense & { category: ExpenseCategory }): ExpenseDto =>
 @Injectable()
 export class ExpensesService {
   constructor(private readonly repo: ExpensesRepository) {}
+
+  /**
+   * Cleared expired stock (Products, Stage 2): one expense in the built-in "Expired stock" category, dated
+   * the day it was cleared, so the loss shows in that month's profit and expense report. Returns its id.
+   */
+  async recordStockWriteOff(
+    businessId: string,
+    input: { date: string; amount: number; note: string; createdById: string | null },
+    db: Tx,
+  ): Promise<string> {
+    const category = await this.repo.systemCategory(businessId, EXPIRED_STOCK_CATEGORY, db);
+    const expense = await this.repo.createIn(
+      businessId,
+      {
+        categoryId: category.id,
+        amount: input.amount,
+        expenseDate: toDbDate(input.date),
+        note: input.note.slice(0, 500),
+        createdById: input.createdById,
+      },
+      db,
+    );
+    return expense.id;
+  }
 
   /** Called by Auth inside the registration transaction (FR-EXP-01). */
   async seedDefaultCategories(businessId: string, db: Tx): Promise<void> {

@@ -9,7 +9,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ArchiveActions } from './form/ArchiveActions';
-import { BasicFields, PlainPricing } from './form/BasicFields';
+import { BasicFields, PlainPricing, TrackingField } from './form/BasicFields';
 import { draftsOf, newId, taka, usableOptions, variantRows, type AttributeDraft } from './form/drafts';
 import { MoreOptions } from './form/MoreOptions';
 import { OptionsEditor } from './form/OptionsEditor';
@@ -38,6 +38,7 @@ export function ProductForm({ product, categories, optionLists = [], businessTyp
   const [cost, setCost] = useState(product ? taka(plainVariant?.costPrice ?? product.costPrice) : '');
   const [stock, setStock] = useState(String(plainVariant?.stock ?? (product ? 0 : 0)));
   const [{ options, rows }, setVariants] = useState(() => draftsOf(product));
+  const [tracksBatches, setTracksBatches] = useState(product?.tracksBatches ?? defaults.tracksBatches);
   const [brand, setBrand] = useState(product?.brand ?? '');
   const [description, setDescription] = useState(product?.description ?? '');
   const [attributes, setAttributes] = useState<AttributeDraft[]>(() => (product?.attributes ?? []).map((a) => ({ id: newId(), ...a })));
@@ -66,12 +67,18 @@ export function ProductForm({ product, categories, optionLists = [], businessTyp
       sku: sku.trim() || null,
       categoryId: category,
       unit,
+      tracksBatches,
       brand,
       description,
       attributes: attributes.filter((a) => a.label.trim() && a.value.trim()).map(({ label, value }) => ({ label, value })),
     };
     if (!hasVariants) {
-      const plain = { sellingPrice: priceP ?? undefined, costPrice: costP ?? undefined, stock: numberOr(stock, 0) };
+      // A tracked product's stock moves only through batches, orders and Clear stock.
+      const plain = {
+        sellingPrice: priceP ?? undefined,
+        costPrice: costP ?? undefined,
+        ...(tracksBatches ? {} : { stock: numberOr(stock, 0) }),
+      };
       // A product that had options becomes plain again: one new variant replaces them.
       if (product && product.options.length > 0) return { ...common, options: [], variants: [{ optionValues: {}, ...plain }] };
       return { ...common, ...plain };
@@ -140,6 +147,7 @@ export function ProductForm({ product, categories, optionLists = [], businessTyp
           onNewCategory={setNewCategory}
           onUnit={setUnit}
         />
+        <TrackingField checked={tracksBatches} onChange={setTracksBatches} />
         <OptionsEditor
           options={options}
           onChange={(next) => setVariants({ options: next, rows })}
@@ -153,9 +161,16 @@ export function ProductForm({ product, categories, optionLists = [], businessTyp
             onRowsChange={(next) => setVariants({ options, rows: next })}
             unit={unit}
             error={error}
+            tracksBatches={tracksBatches}
           />
         ) : (
-          <PlainPricing {...{ error, unit, price, cost, stock, priceP, costP }} onPrice={setPrice} onCost={setCost} onStock={setStock} />
+          <PlainPricing
+            {...{ error, unit, price, cost, stock, priceP, costP, tracksBatches }}
+            isNew={!product}
+            onPrice={setPrice}
+            onCost={setCost}
+            onStock={setStock}
+          />
         )}
         {priceChanged ? (
           <p className="text-sm text-ink-muted">

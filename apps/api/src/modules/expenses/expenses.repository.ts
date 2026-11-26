@@ -48,6 +48,25 @@ export class ExpensesRepository {
     });
   }
 
+  /** The built-in category with this name, created (system, kind `other`) if the business lacks it. One upsert. */
+  systemCategory(businessId: string, name: string, db: Tx) {
+    return db.expenseCategory.upsert({
+      where: { businessId_name: { businessId, name } },
+      create: { businessId, name, kind: 'other', isSystem: true },
+      update: {},
+      select: { id: true },
+    });
+  }
+
+  /** An expense written inside another module's transaction (a stock write-off). */
+  createIn(
+    businessId: string,
+    data: { categoryId: string; amount: number; expenseDate: Date; note: string; createdById: string | null },
+    db: Tx,
+  ) {
+    return db.expense.create({ data: { ...data, businessId }, select: { id: true } });
+  }
+
   find(businessId: string, expenseId: string) {
     return this.prisma.expense.findFirst({ where: { id: expenseId, businessId }, include: { category: true } });
   }

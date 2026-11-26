@@ -29,6 +29,12 @@ export class ProductError extends AppError {
     return new ProductError(422, 'variant_required', message, { [field]: [message] });
   }
 
+  /** Receive stock into batches is only for a product with "Track expiry & batches" on. */
+  static batchesNotTracked(name: string): ProductError {
+    const message = `${name} doesn't track batches. Turn on expiry tracking on the product first.`;
+    return new ProductError(422, 'batches_not_tracked', message, { tracksBatches: [message] });
+  }
+
   /** An archived product can stay on old orders but cannot be added to a new one. */
   static archived(name: string): ProductError {
     const message = `${name} is archived. Restore it before adding it to an order.`;

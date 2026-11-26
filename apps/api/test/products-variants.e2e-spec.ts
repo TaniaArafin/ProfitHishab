@@ -60,6 +60,7 @@ describe('Products with variants (e2e)', () => {
     expect(p.variants[0]).toMatchObject({ label: '', optionValues: {}, sku: p.sku, sellingPrice: tk(350), costPrice: tk(120), stock: 40 });
     expect(Object.keys(p.variants[0]).sort()).toEqual([
       'costPrice',
+      'expiredStock',
       'id',
       'label',
       'optionValues',

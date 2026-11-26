@@ -64,6 +64,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                           {item.variantLabel ? <span className="text-ink-muted"> — {item.variantLabel}</span> : null}
                         </div>
                         <div className="text-xs text-ink-faint">{item.sku}</div>
+                        {item.batches.length > 0 ? <div className="text-xs text-ink-faint">{batchText(item)}</div> : null}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-right tabular">{quantityText(item)}</TableCell>
                       <TableCell className="whitespace-nowrap text-right tabular">{formatTaka(item.unitPrice)}</TableCell>
@@ -87,6 +88,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   </div>
                   <div className="text-xs text-ink-faint tabular">
                     {item.sku} · {quantityText(item)} × {formatTaka(item.unitPrice)} · cost {formatTaka(item.unitCost)}
+                    {item.batches.length > 0 ? <div>{batchText(item)}</div> : null}
                   </div>
                 </li>
               ))}
@@ -186,4 +188,10 @@ function Row({ label, value }: { label: string; value: number }) {
 /** "2", or "2.5 kg" for any unit but piece. */
 function quantityText(item: OrderItemDto): string {
   return item.unit === 'piece' ? String(item.quantity) : `${item.quantity} ${UNIT_LABELS[item.unit]}`;
+}
+
+/** "From batch NP2604 ×120 (exp 2026-12-31), NP2611 ×30": where a FEFO line's stock came from. */
+function batchText(item: OrderItemDto): string {
+  const parts = item.batches.map((b) => `${b.batchNo ?? 'no batch no'} ×${b.quantity} (exp ${b.expiresOn})`);
+  return `From batch ${parts.join(', ')}`;
 }

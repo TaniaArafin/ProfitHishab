@@ -13,7 +13,8 @@ type Choice = { product: ProductDto; variant: VariantDto };
 /** What can be sold: a plain product once, a product with options once per variant on sale. */
 function choicesOf(products: ProductDto[]): Choice[] {
   return products.flatMap((product) => {
-    const onSale = product.variants.filter((v) => v.status === 'active');
+    // Expired stock can't be sold: a variant whose stock has all expired is left out (owner decision 2).
+    const onSale = product.variants.filter((v) => v.status === 'active' && !(v.expiredStock > 0 && v.stock - v.expiredStock <= 0));
     if (product.options.length === 0) return onSale[0] ? [{ product, variant: onSale[0] }] : [];
     return onSale.map((variant) => ({ product, variant }));
   });
@@ -118,7 +119,8 @@ export function ProductPicker({ onPick, error }: { onPick: (product: ProductDto,
               {formatTaka(c.variant.sellingPrice)}
               {c.product.unit === 'piece' ? '' : ` / ${UNIT_LABELS[c.product.unit]}`}
               <span className="block text-xs text-ink-faint">
-                {c.variant.stock} {c.product.unit === 'piece' ? 'in stock' : `${UNIT_LABELS[c.product.unit]} in stock`}
+                {Math.round((c.variant.stock - c.variant.expiredStock) * 1000) / 1000}{' '}
+                {c.product.unit === 'piece' ? 'in stock' : `${UNIT_LABELS[c.product.unit]} in stock`}
               </span>
             </span>
           </li>

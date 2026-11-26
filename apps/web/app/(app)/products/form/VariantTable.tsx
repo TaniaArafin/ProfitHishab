@@ -14,10 +14,12 @@ type Props = {
   onRowsChange: (rows: Record<string, RowDraft>) => void;
   unit: Unit;
   error: ApiError | null;
+  /** Stock comes only through Receive stock: shown, not edited. */
+  tracksBatches?: boolean;
 };
 
 /** One row per combination of option values: SKU (suggested when empty), price, cost, stock, on sale. */
-export function VariantTable({ options, rows, onRowsChange, unit, error }: Props) {
+export function VariantTable({ options, rows, onRowsChange, unit, error, tracksBatches = false }: Props) {
   const [allPrice, setAllPrice] = useState('');
   const [allCost, setAllCost] = useState('');
   const list = variantRows(options, rows);
@@ -109,6 +111,8 @@ export function VariantTable({ options, rows, onRowsChange, unit, error }: Props
                   inputMode={allowsDecimal(unit) ? 'decimal' : 'numeric'}
                   className="tabular"
                   value={row.stock}
+                  readOnly={tracksBatches}
+                  title={tracksBatches ? 'Add stock with Receive stock' : undefined}
                   aria-invalid={!!err(i, 'stock')}
                   onChange={(e) => set(key, row, { stock: e.target.value })}
                 />

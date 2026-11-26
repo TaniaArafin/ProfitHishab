@@ -13,12 +13,14 @@ import {
 import { z } from 'zod';
 import { Auth, type AuthContext } from '../../common/auth';
 import { zod } from '../../common/zod.pipe';
-import { isIsoDate } from '@ph/shared';
+import { addDays, EXPIRY_SOON_DAYS, isIsoDate, receiveStockSchema, todayIn, type ReceiveStockInput } from '@ph/shared';
+import { BatchesService } from './batches.service';
 import { CategoriesRepository } from './categories.repository';
 import { ProductsRepository } from './products.repository';
 import { ProductsService } from './products.service';
 
 const productListQuery = listQuerySchema.extend({
+  expiry: z.enum(['expired', 'soon']).optional(),
   categoryId: z.string().uuid().optional(),
   status: z.enum(PRODUCT_STATUSES).optional(),
   costMissing: z
@@ -47,11 +49,13 @@ export class ProductsController {
     private readonly products: ProductsService,
     private readonly repo: ProductsRepository,
     private readonly categoriesRepo: CategoriesRepository,
+    private readonly batches: BatchesService,
   ) {}
 
   @Get('products')
   async list(@Auth() auth: AuthContext, @Query(zod(productListQuery)) query: z.infer<typeof productListQuery>) {
-    const { data, total } = await this.products.list(auth.businessId, query);
+    const today = todayIn(auth.timezone);
+    const { data, total } = await this.products.list(auth.businessId, { ...query, today, soon: addDays(today, EXPIRY_SOON_DAYS) });
     return { data, meta: { page: query.page, perPage: query.perPage, total } };
   }
 
@@ -59,6 +63,12 @@ export class ProductsController {
   @Get('products/prices-on')
   async pricesOn(@Auth() auth: AuthContext, @Query(zod(pricesOnQuery)) query: z.infer<typeof pricesOnQuery>) {
     return { data: await this.products.pricesOn(auth.businessId, { variantIds: query.variantIds, productIds: query.ids }, query.date) };
+  }
+
+  /** Dashboard alert: expired and soon-expiring batches. Declared before products/:id. */
+  @Get('products/expiry-summary')
+  async expirySummary(@Auth() auth: AuthContext) {
+    return { data: await this.batches.summary(auth.businessId, todayIn(auth.timezone)) };
   }
 
   @Get('products/missing-cost')
@@ -84,6 +94,22 @@ export class ProductsController {
   @Get('products/:id/prices')
   async prices(@Auth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return { data: await this.products.priceHistory(auth.businessId, id) };
+  }
+
+  @Get('products/:id/batches')
+  async batchList(@Auth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return { data: await this.batches.list(auth.businessId, id, todayIn(auth.timezone)) };
+  }
+
+  @Post('products/:id/batches')
+  async receive(@Auth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body(zod(receiveStockSchema)) body: ReceiveStockInput) {
+    return { data: await this.batches.receive(auth, id, body) };
+  }
+
+  @Post('products/:id/clear-expired')
+  @HttpCode(200)
+  async clearExpired(@Auth() auth: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return { data: await this.batches.clearExpired(auth, id) };
   }
 
   @Patch('products/:id')

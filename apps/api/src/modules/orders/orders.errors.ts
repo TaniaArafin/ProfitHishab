@@ -30,6 +30,12 @@ export class OrderError extends AppError {
     return new OrderError(422, 'quantity_not_whole', message, { [`items.${index}.quantity`]: [message] });
   }
 
+  /** Owner decision 2: expired stock can't be sold; clear it and receive fresh stock. */
+  static stockExpired(name: string, index: number): OrderError {
+    const message = `All stock of ${name} has expired. Clear it and receive fresh stock first.`;
+    return new OrderError(422, 'stock_expired', message, { [`items.${index}.variantId`]: [message] });
+  }
+
   /** FR-ORD-07: only an order that left with the courier can come back. */
   static cannotReturn(from: OrderStatus): OrderError {
     const message = `A ${label(from)} order can't be marked returned. Only shipped or delivered orders can.`;

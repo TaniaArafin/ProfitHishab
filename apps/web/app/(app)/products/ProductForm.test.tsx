@@ -126,6 +126,8 @@ describe('ProductForm', () => {
   it('a grocery product is priced per kg', () => {
     render(<ProductForm categories={[]} businessType="Food & grocery" />);
     expect(screen.getByLabelText('Price per kg (৳)')).toBeInTheDocument();
+    // Grocery tracks expiry by default; without it the stock is typed here.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Track expiry dates (batches)' }));
     expect(screen.getByLabelText('Stock (kg)')).toBeInTheDocument();
   });
 
@@ -135,5 +137,18 @@ describe('ProductForm', () => {
     expect(screen.getByLabelText('Brand')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '+ Material' }));
     expect(screen.getByLabelText('Detail 1 label')).toHaveValue('Material');
+  });
+
+  it('a medicine product tracks expiry by default and gets stock through Receive stock', async () => {
+    render(<ProductForm categories={[]} businessType="Medical & pharmacy" />);
+    expect(screen.getByRole('checkbox', { name: 'Track expiry dates (batches)' })).toBeChecked();
+    expect(screen.queryByLabelText('Stock (strip)')).not.toBeInTheDocument();
+    expect(screen.getByText(/Add stock with Receive stock/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Product name'), { target: { value: 'Napa 500mg' } });
+    fireEvent.change(screen.getByLabelText('Price per strip (৳)'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('Cost per strip (৳)'), { target: { value: '9.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add product' }));
+    await waitFor(() => expect(posted()).toBeDefined());
+    expect(posted()).toMatchObject({ name: 'Napa 500mg', unit: 'strip', tracksBatches: true, sellingPrice: 1200, costPrice: 950 });
   });
 });

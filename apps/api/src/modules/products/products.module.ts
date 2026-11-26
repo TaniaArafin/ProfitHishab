@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { ExpensesModule } from '../expenses/expenses.module';
+import { BatchesRepository } from './batches.repository';
+import { BatchesService } from './batches.service';
 import { CategoriesRepository } from './categories.repository';
 import { OptionListsController } from './option-lists.controller';
 import { OptionListsRepository } from './option-lists.repository';
@@ -11,9 +14,12 @@ import { ProductsService } from './products.service';
 import { VariantsRepository } from './variants.repository';
 
 @Module({
+  imports: [ExpensesModule],
   controllers: [ProductsController, OptionListsController],
   providers: [
     ProductsRepository,
+    BatchesRepository,
+    BatchesService,
     VariantsRepository,
     OptionListsRepository,
     CategoriesRepository,

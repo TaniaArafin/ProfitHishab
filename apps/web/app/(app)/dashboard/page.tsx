@@ -22,7 +22,15 @@ import {
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense, type ReactNode } from 'react';
-import { formatTaka, percent, type InsightDto, type ProductProfitReportDto, type ProfitSummaryDto, type TrendPointDto } from '@ph/shared';
+import {
+  formatTaka,
+  percent,
+  type InsightDto,
+  type ExpirySummaryDto,
+  type ProductProfitReportDto,
+  type ProfitSummaryDto,
+  type TrendPointDto,
+} from '@ph/shared';
 import { PeriodSelector } from '@/components/PeriodSelector';
 import { TrendChartLazy as TrendChart } from '@/components/TrendChartLazy';
 import { Banner, IconChip, Money, PageHeader, Skeleton } from '@/components/ui';
@@ -38,7 +46,10 @@ type Props = { searchParams: Promise<Record<string, string | string[] | undefine
 
 export default async function DashboardPage({ searchParams }: Props) {
   const period = periodFromParams(await searchParams);
-  const { data: summary } = await apiGet<{ data: ProfitSummaryDto }>(`/profit/summary?${period.query}`);
+  const [{ data: summary }, { data: expiry }] = await Promise.all([
+    apiGet<{ data: ProfitSummaryDto }>(`/profit/summary?${period.query}`),
+    apiGet<{ data: ExpirySummaryDto }>('/products/expiry-summary'),
+  ]);
 
   if (!summary.dataQuality.hasOrders) return <Onboarding />;
 
@@ -74,6 +85,25 @@ export default async function DashboardPage({ searchParams }: Props) {
           really is.{' '}
           <Link href="/products/missing-cost" className="font-semibold underline underline-offset-2">
             Fix costs
+          </Link>
+        </Banner>
+      ) : null}
+
+      {expiry.expired.batches > 0 ? (
+        <Banner tone="loss">
+          <strong>✕ {expiry.expired.batches === 1 ? '1 batch has' : `${expiry.expired.batches} batches have`} expired</strong> (
+          {formatTaka(expiry.expired.cost)} at cost). It can&apos;t be sold.{' '}
+          <Link href="/products?expiry=expired" className="font-semibold underline underline-offset-2">
+            Clear stock
+          </Link>
+        </Banner>
+      ) : null}
+      {expiry.soon.batches > 0 ? (
+        <Banner tone="warn">
+          <strong>⚠ {expiry.soon.batches === 1 ? '1 batch expires' : `${expiry.soon.batches} batches expire`} within 30 days</strong> (
+          {formatTaka(expiry.soon.cost)} at cost).{' '}
+          <Link href="/products?expiry=soon" className="font-semibold underline underline-offset-2">
+            See them
           </Link>
         </Banner>
       ) : null}

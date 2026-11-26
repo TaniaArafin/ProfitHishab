@@ -3,6 +3,7 @@
 import { allowsDecimal, formatTaka, percent, UNITS, type CategoryDto, type Unit } from '@ph/shared';
 import { fieldError, type ApiError } from '@/lib/client-api';
 import { SelectField } from '@/components/SelectField';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { moneyLabels, unitName } from './drafts';
@@ -28,6 +29,26 @@ type BasicProps = {
   unit: Unit;
   onUnit: (v: Unit) => void;
 };
+
+/** "Track expiry dates (batches)": medicine, grocery and cosmetics start with it on (spec §6). */
+export function TrackingField({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-start gap-2.5 text-sm">
+      <Checkbox
+        className="mt-0.5"
+        checked={checked}
+        onCheckedChange={(v) => onChange(v === true)}
+        aria-label="Track expiry dates (batches)"
+      />
+      <span>
+        <span className="font-medium">Track expiry dates (batches)</span>
+        <span className="block text-xs text-ink-muted">
+          Stock comes in batches with an expiry date; orders take the one that expires first.
+        </span>
+      </span>
+    </label>
+  );
+}
 
 /** Name, SKU, category and the unit the product is sold by. */
 export function BasicFields(p: BasicProps) {
@@ -78,6 +99,9 @@ export function BasicFields(p: BasicProps) {
 
 type PricingProps = {
   error: ApiError | null;
+  /** Stock comes only through Receive stock (batches); no stock box. */
+  tracksBatches: boolean;
+  isNew: boolean;
   unit: Unit;
   price: string;
   onPrice: (v: string) => void;
@@ -109,18 +133,24 @@ export function PlainPricing(p: PricingProps) {
           <Input id="cost" inputMode="decimal" className="tabular" value={p.cost} onChange={(e) => p.onCost(e.target.value)} required />
           <FieldError error={p.error} field="costPrice" />
         </div>
-        <div className="col-span-2 sm:col-span-1">
-          <Label htmlFor="stock">{labels.stock}</Label>
-          <Input
-            id="stock"
-            inputMode={allowsDecimal(p.unit) ? 'decimal' : 'numeric'}
-            className="tabular"
-            value={p.stock}
-            onChange={(e) => p.onStock(e.target.value)}
-          />
-          <FieldError error={p.error} field="stock" />
-          <FieldError error={p.error} field="variants.0.stock" />
-        </div>
+        {p.tracksBatches ? (
+          <p className="col-span-2 self-end text-sm text-ink-muted sm:col-span-1">
+            {p.isNew ? 'Add stock with Receive stock after saving.' : `Stock ${p.stock}. Add stock with Receive stock.`}
+          </p>
+        ) : (
+          <div className="col-span-2 sm:col-span-1">
+            <Label htmlFor="stock">{labels.stock}</Label>
+            <Input
+              id="stock"
+              inputMode={allowsDecimal(p.unit) ? 'decimal' : 'numeric'}
+              className="tabular"
+              value={p.stock}
+              onChange={(e) => p.onStock(e.target.value)}
+            />
+            <FieldError error={p.error} field="stock" />
+            <FieldError error={p.error} field="variants.0.stock" />
+          </div>
+        )}
       </div>
       <div className="rounded-md bg-paper px-4 py-3 text-sm" aria-live="polite">
         {preview ? (

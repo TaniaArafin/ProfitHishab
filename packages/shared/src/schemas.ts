@@ -203,6 +203,8 @@ const productFields = {
   costPrice: money,
   stock: quantityLike,
   status: z.enum(PRODUCT_STATUSES),
+  /** Stock comes in batches with an expiry date; sales take the earliest expiry first. */
+  tracksBatches: z.boolean(),
 };
 
 type VariantShape = { optionValues: Record<string, string>; stock?: number };
@@ -272,6 +274,7 @@ export const productSchema = z
     costPrice: money.optional(),
     stock: quantityLike.optional(),
     status: productFields.status.default('active'),
+    tracksBatches: productFields.tracksBatches.default(false),
   })
   .superRefine((p, ctx) => {
     checkOptions(p.options, ctx);
@@ -324,6 +327,26 @@ export const optionListSchema = z.object({ name: optionText, values: uniqueValue
 export type OptionListInput = z.infer<typeof optionListSchema>;
 export const optionListUpdateSchema = z.object({ name: optionText.optional(), values: uniqueValues.optional() });
 export type OptionListUpdateInput = z.infer<typeof optionListUpdateSchema>;
+
+/** Receive stock into a new batch (spec 5.4). `variantId` may be left out for a plain product. */
+export const receiveStockSchema = z.object({
+  variantId: uuid.optional(),
+  batchNo: z
+    .string()
+    .trim()
+    .max(40)
+    .optional()
+    .nullable()
+    .transform((v) => (v ? v : null)),
+  expiresOn: isoDate,
+  quantity: z
+    .number({ invalid_type_error: 'Enter a quantity' })
+    .positive('Quantity must be more than 0')
+    .max(1e6)
+    .refine((v) => hasAtMostDecimals(v), 'Use at most 3 decimals'),
+  unitCost: money,
+});
+export type ReceiveStockInput = z.infer<typeof receiveStockSchema>;
 
 export const bulkCostSchema = z.object({
   items: z

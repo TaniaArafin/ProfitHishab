@@ -18,6 +18,9 @@ export function plainProduct(over: Partial<ProductDto> & { id: string; name: str
     description: null,
     attributes: [],
     options: [],
+    tracksBatches: false,
+    expiredStock: 0,
+    expiredCost: 0,
     ...over,
   };
   const variant: VariantDto = {
@@ -29,6 +32,7 @@ export function plainProduct(over: Partial<ProductDto> & { id: string; name: str
     costPrice: base.costPrice,
     stock: base.stock,
     status: 'active',
+    expiredStock: 0,
   };
   return { ...base, variants: over.variants ?? [variant] };
 }
@@ -55,6 +59,7 @@ export const kurti: ProductDto = plainProduct({
       costPrice: 70000,
       stock: 14,
       status: 'active',
+      expiredStock: 0,
     },
     {
       id: 'kurti-xl-red',
@@ -65,6 +70,7 @@ export const kurti: ProductDto = plainProduct({
       costPrice: 76000,
       stock: 4,
       status: 'active',
+      expiredStock: 0,
     },
   ],
 });

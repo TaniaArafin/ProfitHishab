@@ -1,5 +1,6 @@
 import {
   allowedTransitions,
+  type BatchAllocation,
   type OrderDetailDto,
   type OrderListItemDto,
   type OrderStatus,
@@ -8,6 +9,8 @@ import {
 } from '@ph/shared';
 import { fromDbDate } from '../../common/dates';
 import type { OrderDetailRow, OrderListRow } from './orders.repository';
+
+export const allocationsOf = (json: unknown): BatchAllocation[] => (Array.isArray(json) ? (json as BatchAllocation[]) : []);
 
 /** SRS 6.4. Pending orders show what they will earn if delivered; cancelled orders earn nothing. */
 export function orderProfit(o: {
@@ -59,6 +62,7 @@ export function toOrderDetail(o: OrderDetailRow): OrderDetailDto {
       productName: i.productName,
       variantLabel: i.variantLabel,
       unit: i.product.unit as Unit,
+      batches: allocationsOf(i.batchAllocations).map((a) => ({ batchNo: a.batchNo, expiresOn: a.expiresOn, quantity: a.quantity })),
       sku: i.sku,
       quantity: i.quantity,
       unitPrice: i.unitPrice,

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import type { OrderListQuery } from '@ph/shared';
+import type { BatchAllocation, OrderListQuery } from '@ph/shared';
 import { toDbDate } from '../../common/dates';
 import { PrismaService, type Tx } from '../../common/prisma.service';
 
@@ -26,12 +26,17 @@ export interface NewOrderItem {
   productName: string;
   /** "M / Red" at the time of the order; null for a plain product. */
   variantLabel: string | null;
+  /** The batches the line took stock from (FEFO); [] or absent when it took none. */
+  batchAllocations?: BatchAllocation[] | Prisma.JsonValue;
   sku: string;
   quantity: number;
   unitPrice: number;
   unitCost: number;
   lineTotal: number;
 }
+
+/** An item as Prisma writes it: the allocations go in as JSON (null-safe). */
+const itemData = (i: NewOrderItem) => ({ ...i, batchAllocations: (i.batchAllocations ?? []) as Prisma.InputJsonValue });
 
 @Injectable()
 export class OrdersRepository {
@@ -128,7 +133,7 @@ export class OrdersRepository {
 
   create(businessId: string, data: Omit<Prisma.OrderUncheckedCreateInput, 'businessId' | 'items'>, items: NewOrderItem[], db: Tx) {
     return db.order.create({
-      data: { ...data, businessId, items: { create: items.map((i) => ({ ...i, businessId })) } },
+      data: { ...data, businessId, items: { create: items.map((i) => ({ ...itemData(i), businessId })) } },
       select: { id: true },
     });
   }
@@ -153,7 +158,7 @@ export class OrdersRepository {
     });
     const idByNo = new Map(created.map((o) => [o.orderNo, o.id]));
     await db.orderItem.createMany({
-      data: orders.flatMap((o) => o.items.map((i) => ({ ...i, businessId, orderId: idByNo.get(o.order.orderNo)! }))),
+      data: orders.flatMap((o) => o.items.map((i) => ({ ...itemData(i), businessId, orderId: idByNo.get(o.order.orderNo)! }))),
     });
     await db.orderStatusHistory.createMany({
       data: orders.map((o) => ({
@@ -179,7 +184,7 @@ export class OrdersRepository {
 
   async replaceItems(businessId: string, orderId: string, items: NewOrderItem[], db: Tx): Promise<void> {
     await db.orderItem.deleteMany({ where: { orderId } });
-    await db.orderItem.createMany({ data: items.map((i) => ({ ...i, orderId, businessId })) });
+    await db.orderItem.createMany({ data: items.map((i) => ({ ...itemData(i), orderId, businessId })) });
   }
 
   addHistory(

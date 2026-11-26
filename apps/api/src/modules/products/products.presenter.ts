@@ -6,7 +6,11 @@ type Option = { name: string; values: string[] };
 
 export const productOptions = (p: { options: unknown }): Option[] => (Array.isArray(p.options) ? (p.options as Option[]) : []);
 
-export function toVariantDto(v: VariantRow, options: ReadonlyArray<{ name: string }>): VariantDto {
+/** Expired stock and its cost per variant id. */
+export type ExpiredByVariant = ReadonlyMap<string, { quantity: number; cost: number }>;
+const NONE: ExpiredByVariant = new Map();
+
+export function toVariantDto(v: VariantRow, options: ReadonlyArray<{ name: string }>, expired: ExpiredByVariant = NONE): VariantDto {
   return {
     id: v.id,
     optionValues: v.optionValues,
@@ -16,12 +20,14 @@ export function toVariantDto(v: VariantRow, options: ReadonlyArray<{ name: strin
     costPrice: v.costPrice,
     stock: v.stock,
     status: v.status as VariantStatus,
+    expiredStock: expired.get(v.id)?.quantity ?? 0,
   };
 }
 
 /** `variants` are this product's, in position order. */
-export function toProductDto(p: ProductRow, variants: VariantRow[]): ProductDto {
+export function toProductDto(p: ProductRow, variants: VariantRow[], expired: ExpiredByVariant = NONE): ProductDto {
   const options = productOptions(p);
+  const mine = variants.flatMap((v) => (expired.has(v.id) ? [expired.get(v.id)!] : []));
   return {
     id: p.id,
     name: p.name,
@@ -40,6 +46,9 @@ export function toProductDto(p: ProductRow, variants: VariantRow[]): ProductDto 
     description: p.description,
     attributes: Array.isArray(p.attributes) ? (p.attributes as ProductDto['attributes']) : [],
     options,
-    variants: variants.map((v) => toVariantDto(v, options)),
+    variants: variants.map((v) => toVariantDto(v, options, expired)),
+    tracksBatches: p.tracksBatches,
+    expiredStock: Math.round(mine.reduce((s, e) => s + e.quantity, 0) * 1000) / 1000,
+    expiredCost: mine.reduce((s, e) => s + e.cost, 0),
   };
 }

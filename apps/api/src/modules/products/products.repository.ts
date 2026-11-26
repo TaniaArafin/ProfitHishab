@@ -10,6 +10,11 @@ export interface ProductListFilters {
   categoryId?: string;
   status?: string;
   costMissing?: boolean;
+  /** Products with stock in an expired batch, or in one expiring between `today` and `soon`. */
+  expiry?: 'expired' | 'soon';
+  /** Business-timezone today and today + EXPIRY_SOON_DAYS, for `expiry`. */
+  today?: string;
+  soon?: string;
   sort?: string;
   page: number;
   perPage: number;
@@ -30,6 +35,7 @@ export interface ProductRow {
   description: string | null;
   attributes: unknown;
   options: unknown;
+  tracksBatches: boolean;
 }
 
 export interface MissingCostRow {
@@ -75,6 +81,13 @@ export class ProductsRepository {
       where.push(
         Prisma.sql`EXISTS (SELECT 1 FROM product_variants v WHERE v."productId" = p.id AND v.status = 'active' AND v."costPrice" = 0)`,
       );
+    if (f.expiry && f.today) {
+      const range =
+        f.expiry === 'expired'
+          ? Prisma.sql`b."expiresOn" < ${f.today}::date`
+          : Prisma.sql`b."expiresOn" >= ${f.today}::date AND b."expiresOn" <= ${f.soon ?? f.today}::date`;
+      where.push(Prisma.sql`EXISTS (SELECT 1 FROM stock_batches b WHERE b."productId" = p.id AND b.quantity > 0 AND ${range})`);
+    }
     const whereSql = Prisma.join(where, ' AND ');
 
     const desc = f.sort?.startsWith('-') ?? false;
@@ -88,7 +101,7 @@ export class ProductsRepository {
       this.prisma.$queryRaw<ProductRow[]>`
         SELECT p.id, p.name, p.sku, p."categoryId", c.name AS "categoryName",
                p."sellingPrice", p."costPrice", p.stock, p.status,
-               p.unit, p.brand, p.description, p.attributes, p.options
+               p.unit, p.brand, p.description, p.attributes, p.options, p."tracksBatches"
         FROM products p
         LEFT JOIN categories c ON c.id = p."categoryId"
         WHERE ${whereSql}
