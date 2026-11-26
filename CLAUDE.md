@@ -223,7 +223,7 @@ Run: `npm test` from the root. All of it must pass before finishing a change.
 - Every promise is awaited or explicitly `void`-ed; `no-floating-promises` enforces this (2.12).
 - Validation: Zod at every boundary (2.11, 6.10); JSON bodies are capped at 256 kB (6.14).
 - Config: environment-aware and validated at startup (1.4); `NODE_ENV=production` in images (5.15).
-- Node 22 LTS, pinned in `.nvmrc` and `engines` (4.4, 5.17). CI installs with `npm ci` (5.19) and runs `npm audit` (5.13).
+- Node 22 LTS, pinned in `.nvmrc` and `engines` (4.4, 5.17). CI installs with `npm ci` (5.19) and runs `npm audit` (5.13). Patched transitive versions are pinned in the root `overrides` (Next's postcss, Prisma's `effect`/`deepmerge-ts`, the Nest CLI's `glob`); drop an override once its parent ships the fix. Zod is v4: `z.config` in `schemas.ts` keeps "Required" for a missing field; a record keyed by an enum that may be partial is `z.partialRecord`.
 - Docker images are multi-stage, use a pinned base tag, run as `node` (non-root) and start with `node`, not `npm` (8.1, 8.2, 8.9, 6.13). Migrations run from the separate `migrate` target.
 - Imports of built-in modules use the `node:` prefix (6.27).
 
