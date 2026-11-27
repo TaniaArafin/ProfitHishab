@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { loginSchema, receiveStockSchema } from './schemas';
 import {
   canTransition,
   currentMonthIn,
@@ -477,5 +478,17 @@ describe('allocateFefo (spec 5.4)', () => {
     expect(businessTypeDefaults('Food & grocery').tracksBatches).toBe(true);
     expect(businessTypeDefaults('Cosmetics & beauty').tracksBatches).toBe(true);
     expect(businessTypeDefaults('Clothing & fashion').tracksBatches).toBe(false);
+  });
+});
+
+describe('validation messages (Zod 4)', () => {
+  it('a missing field says "Required"; a schema\'s own message still wins', () => {
+    const missing = loginSchema.safeParse({ password: 'x' });
+    expect(missing.success).toBe(false);
+    expect(missing.error?.issues[0]).toMatchObject({ path: ['identifier'], message: 'Required' });
+    const short = loginSchema.safeParse({ identifier: 'a', password: 'x' });
+    expect(short.error?.issues[0].message).toBe('Enter your email or phone');
+    const notANumber = receiveStockSchema.safeParse({ expiresOn: '2099-01-01', quantity: 'ten', unitCost: 100 });
+    expect(notANumber.error?.issues[0]).toMatchObject({ path: ['quantity'], message: 'Enter a quantity' });
   });
 });

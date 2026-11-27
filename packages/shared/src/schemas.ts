@@ -29,8 +29,16 @@ import {
 } from './products';
 import { normalizePhone, toAsciiDigits } from './phone';
 
+/**
+ * Zod 4's default for a missing field is "Invalid input: expected string, received undefined",
+ * which sellers see as-is. Keep the short wording; a schema's own message still wins.
+ */
+z.config({
+  customError: (issue) => (issue.code === 'invalid_type' && issue.input === undefined ? 'Required' : undefined),
+});
+
 /** Integer poisha, never negative. */
-const money = z.number({ invalid_type_error: 'Enter an amount' }).int('Amount must be whole poisha').min(0, "Amount can't be negative");
+const money = z.number({ error: 'Enter an amount' }).int('Amount must be whole poisha').min(0, "Amount can't be negative");
 const isoDate = z.string().refine(isIsoDate, 'Use a date like 2026-09-30');
 const phone = z.string().transform((value, ctx) => {
   const normalized = normalizePhone(value);
@@ -62,7 +70,7 @@ export type OtpRequestInput = z.infer<typeof otpRequestSchema>;
 
 /** The 6-digit SMS code; Bangla digits and spaces are accepted. */
 const otpCode = z
-  .string({ required_error: 'Enter the 6-digit code' })
+  .string({ error: 'Enter the 6-digit code' })
   .transform((v) => toAsciiDigits(v).replace(/\s/g, ''))
   .pipe(z.string().regex(/^\d{6}$/, 'Enter the 6-digit code from the SMS'));
 
@@ -159,7 +167,7 @@ const productSku = z
 
 /** Stock or a quantity: up to 3 decimals; whole numbers are enforced per unit. */
 const quantityLike = z
-  .number({ invalid_type_error: 'Enter a number' })
+  .number({ error: 'Enter a number' })
   .min(-1e9)
   .max(1e9)
   .refine((v) => hasAtMostDecimals(v), 'Use at most 3 decimals');
@@ -179,7 +187,7 @@ export const productAttributeSchema = z.object({
 
 export const variantInputSchema = z.object({
   id: uuid.optional(),
-  optionValues: z.record(optionText).default({}),
+  optionValues: z.record(z.string(), optionText).default({}),
   sku: productSku,
   sellingPrice: money,
   costPrice: money,
@@ -340,7 +348,7 @@ export const receiveStockSchema = z.object({
     .transform((v) => (v ? v : null)),
   expiresOn: isoDate,
   quantity: z
-    .number({ invalid_type_error: 'Enter a quantity' })
+    .number({ error: 'Enter a quantity' })
     .positive('Quantity must be more than 0')
     .max(1e6)
     .refine((v) => hasAtMostDecimals(v), 'Use at most 3 decimals'),
@@ -377,7 +385,7 @@ export const orderItemSchema = z
     /** Legacy: a product with one variant; a product with several needs `variantId`. */
     productId: uuid.optional(),
     quantity: z
-      .number({ invalid_type_error: 'Enter a quantity' })
+      .number({ error: 'Enter a quantity' })
       .positive('Quantity must be more than 0')
       .max(1e6)
       .refine((v) => hasAtMostDecimals(v), 'Use at most 3 decimals'),
@@ -559,7 +567,7 @@ export type AdminPaymentListQuery = z.infer<typeof adminPaymentListQuerySchema>;
 /** Which spreadsheet column fills which order field, and how status texts map to order statuses. */
 export const importMappingSchema = z
   .object({
-    columns: z.record(z.enum(IMPORT_TARGETS), z.string().min(1)),
+    columns: z.partialRecord(z.enum(IMPORT_TARGETS), z.string().min(1)),
     statuses: z.record(z.string(), z.enum(ORDER_STATUSES)).default({}),
   })
   .superRefine((d, ctx) => {
@@ -585,7 +593,7 @@ export type ImportRowsQuery = z.infer<typeof importRowsQuerySchema>;
 /** A fix typed on the import preview: new text for some cells of one row, keyed by the file's headers. */
 export const importRowEditSchema = z.object({
   cells: z
-    .record(z.string().max(500, 'This value is too long'))
+    .record(z.string(), z.string().max(500, 'This value is too long'))
     .refine((cells) => Object.keys(cells).length > 0, 'Change at least one value')
     .refine((cells) => Object.keys(cells).length <= 50, 'Too many values'),
 });

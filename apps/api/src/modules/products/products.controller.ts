@@ -37,8 +37,8 @@ const idList = z
 /** `variantIds`, or the older `ids` (product ids, each standing for its first variant). */
 const pricesOnQuery = z
   .object({
-    variantIds: idList.default(''),
-    ids: idList.default(''),
+    variantIds: idList.default([]),
+    ids: idList.default([]),
     date: z.string().refine(isIsoDate, 'Use a date like 2026-09-30'),
   })
   .refine((q) => q.variantIds.length + q.ids.length > 0, { message: 'Name at least one variant', path: ['variantIds'] });
